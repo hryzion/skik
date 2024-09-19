@@ -14,8 +14,9 @@ def photo2sketch(photo):
 '''
 根据给定scene_json和view,输出一个单通道图片,
 将scenejson中的包围盒边绘制在该图片上,输出
+view: {'pos':[x, y, z], 'direction':[dx, dy, dz]}
 '''
-def scene2photo(scene_json, view):
+def scene2photo(scene_json: dict, view: dict):
     pass
 
 def swintransformer(sketch):
