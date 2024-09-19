@@ -27,6 +27,38 @@ def inference(sketch, is_from_scene):
         # transfer 2 sketch-sketch
         sketch = photo2sketch(sketch)
     return swintransformer(sketch)
+
+
+
+def rotate_vector_around_x_axis(v, theta):
+    """Rotate a 3D vector around the X-axis by theta degrees."""
+    theta_rad = np.radians(theta)
+    rotation_matrix = np.array([
+        [1, 0, 0],
+        [0, np.cos(theta_rad), -np.sin(theta_rad)],
+        [0, np.sin(theta_rad), np.cos(theta_rad)]
+    ])
+    return np.dot(rotation_matrix, v)
+
+def rotate_vector_around_y_axis(v, theta):
+    """Rotate a 3D vector around the Y-axis by theta degrees."""
+    theta_rad = np.radians(theta)
+    rotation_matrix = np.array([
+        [np.cos(theta_rad), 0, np.sin(theta_rad)],
+        [0, 1, 0],
+        [-np.sin(theta_rad), 0, np.cos(theta_rad)]
+    ])
+    return np.dot(rotation_matrix, v)
+
+def rotate_vector_around_z_axis(v, theta):
+    """Rotate a 3D vector around the Z-axis by theta degrees."""
+    theta_rad = np.radians(theta)
+    rotation_matrix = np.array([
+        [np.cos(theta_rad), -np.sin(theta_rad), 0],
+        [np.sin(theta_rad), np.cos(theta_rad), 0],
+        [0, 0, 1]
+    ])
+    return np.dot(rotation_matrix, v)
     
     
 
@@ -43,8 +75,14 @@ def simulated_annealing_pos(sketch_feature,scene_json, init_view,photo2sketch_mo
     
     while temp > min_temp:
         new_view = view
-        new_view['pos'] = new_view['pos'] + (random.random() - 0.5) * temp * new_view['direction']
+        rot_x=random.randint(0, 359)
+        rot_y=random.randint(0, 359)
+        rot_z=random.randint(0, 359)
+        new_view['direction']= rotate_vector_around_x_axis(new_view['direction'],rot_x)
+        new_view['direction']= rotate_vector_around_y_axis(new_view['direction'],rot_y)
+        new_view['direction']= rotate_vector_around_z_axis(new_view['direction'],rot_z)
         
+
         scene_sketch = scene2photo(scene_json,view)
         scene_feature = inference(scene_sketch,True)
         scene_feature = np.array(scene_feature)
