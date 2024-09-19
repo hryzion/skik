@@ -1,3 +1,4 @@
 *.zip
 __pycache__
 pretrained
+Swin-Transformer
