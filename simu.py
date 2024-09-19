@@ -17,6 +17,11 @@ def photo2sketch(photo):
 根据给定scene_json和view,输出一个单通道图片,
 将scenejson中的包围盒边绘制在该图片上,输出
 view: {'pos':[x, y, z], 'direction':[dx, dy, dz]}
+如需保存为图片：
+    import matplotlib.pyplot as plt
+    image = scene2photo(scene_json=scene_json, view=view)
+    plt.imshow(image, cmap='gray')
+    plt.savefig('1.png')
 '''
 def scene2photo(scene_json: dict, view: dict):
     # 可修改参数：横向fov，图片宽度、高度
