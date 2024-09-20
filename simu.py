@@ -26,8 +26,8 @@ view: {'pos':[x, y, z], 'direction':[dx, dy, dz]}
 def scene2photo(scene_json: dict, view: dict):
     # 可修改参数：横向fov，图片宽度、高度
     fov = 75                                               # 相机与画布的角度
-    width = 300                                            # 纵横比 4:3
-    height = 400
+    width = 400                                            # 横纵比 4:3
+    height = 300
 
     # 读取参数：相机位置、相机朝向
     cam_pos: list = view.get('pos', [0, 0, 0])             # 相机中心点
