@@ -20,12 +20,7 @@ def photo2sketch(photo,photo2sketch_model):
 将scenejson中的包围盒边绘制在该图片上,输出
 view: {'pos':[x, y, z], 'direction':[dx, dy, dz]}
 注意: roomid: scene_json中的id, 为一个字符串,如果字符串为空,则默认为第一个. 如果不符合需要请调整
-
-如需保存为图片：
-    import matplotlib.pyplot as plt
-    image = scene2photo(scene_json=scene_json, view=view)
-    plt.imshow(image, cmap='gray')
-    plt.savefig('1.png')
+裁剪后, 图片shape为 (1, 1, 265, 355), 奇怪的尺寸是裁剪的原因
 '''
 def scene2photo(scene_json: dict, view: dict, roomid: str = ''):
     # 可修改参数：横向fov，图片宽度、高度
@@ -35,7 +30,7 @@ def scene2photo(scene_json: dict, view: dict, roomid: str = ''):
     canvas_height = 600
 
     # 读取参数：相机位置、相机朝向
-    cam_pos: list = view.get('origin', [0, 0, 0])             # 相机中心点
+    cam_pos: list = view.get('pos', [0, 0, 0])             # 相机中心点
     cam_dir: list = view.get('direction', [0, 0, 1])       # 相机朝向
     
     # 将目标房间的包围盒存入列表
@@ -102,7 +97,7 @@ def scene2photo(scene_json: dict, view: dict, roomid: str = ''):
         return None
 
     # 创建一个空白图像，单通道（灰度图）
-    image_large = np.zeros((canvas_height, canvas_width), dtype=np.uint8)
+    image_large = np.ones((canvas_height, canvas_width), dtype=np.uint8)
 
     # 绘制包围盒
     for bbox in bboxes:
@@ -161,7 +156,7 @@ def scene2photo(scene_json: dict, view: dict, roomid: str = ''):
                 p2 = project_to_canvas(end_point, canvas_width_world_large, canvas_height_world_large)
 
                 # 绘制线段到图像上（单通道图像，颜色值为1）
-                cv2.line(image_large, p1, p2, color=1, thickness=1)
+                cv2.line(image_large, p1, p2, color=0, thickness=1)
 
 
     def divide_line_into_segments(roomShape, num_segments=30):
@@ -211,7 +206,7 @@ def scene2photo(scene_json: dict, view: dict, roomid: str = ''):
             if start_point is not None and end_point is not None:
                 p1 = project_to_canvas(start_point, canvas_width_world_large, canvas_height_world_large)
                 p2 = project_to_canvas(end_point, canvas_width_world_large, canvas_height_world_large)
-                cv2.line(image_large, p1, p2, color=1, thickness=1)
+                cv2.line(image_large, p1, p2, color=0, thickness=1)
 
     
 
@@ -249,7 +244,7 @@ def scene2photo(scene_json: dict, view: dict, roomid: str = ''):
             if start_point is not None and end_point is not None:
                 p1 = project_to_canvas(start_point, canvas_width_world_large, canvas_height_world_large)
                 p2 = project_to_canvas(end_point, canvas_width_world_large, canvas_height_world_large)
-                cv2.line(image_large, p1, p2, color=1, thickness=1)
+                cv2.line(image_large, p1, p2, color=0, thickness=1)
 
     # 计算裁剪范围，以fov=75度为目标
     crop_x_min = int((canvas_width / 2) - (canvas_width * (canvas_width_world_target / canvas_width_world_large) / 2))
@@ -259,7 +254,7 @@ def scene2photo(scene_json: dict, view: dict, roomid: str = ''):
 
     # 裁剪图像，得到目标fov下的画布
     image_cropped = image_large[crop_y_min:crop_y_max, crop_x_min:crop_x_max]
-
+    image_cropped = np.expand_dims(np.expand_dims(image_cropped, axis=0), axis=0)
     return image_cropped
 
 def swintransformer(sketch,swint_model):
