@@ -9,8 +9,8 @@ def objective_function(x):
     return math.sin(x) * math.cos(x) + x * x
     
 
-def photo2sketch(photo):
-    return photo
+def photo2sketch(photo,photo2sketch_model):
+    return photo2sketch_model(photo)
 
 
 '''
@@ -260,14 +260,14 @@ def scene2photo(scene_json: dict, view: dict, roomid: str = ''):
 
     return image_cropped
 
-def swintransformer(sketch):
-    return 0
+def swintransformer(sketch,swint_model):
+    return swint_model.forward_features(sketch)
 
-def inference(sketch, is_from_scene):
+def inference(sketch, is_from_scene,photo2sketch_model,swint_model):
     if is_from_scene:
         # transfer 2 sketch-sketch
-        sketch = photo2sketch(sketch)
-    return swintransformer(sketch)
+        sketch = photo2sketch(sketch,photo2sketch_model)
+    return swintransformer(sketch,swint_model)
 
 
 
@@ -300,6 +300,38 @@ def rotate_vector_around_z_axis(v, theta):
         [0, 0, 1]
     ])
     return np.dot(rotation_matrix, v)
+
+def cartesian_to_spherical(v):
+    """
+    将笛卡尔坐标转换为方位角和俯仰角
+    :param x: x坐标
+    :param y: y坐标
+    :param z: z坐标
+    :return: 方位角φ（弧度），俯仰角θ（弧度）
+    """
+    # 计算方位角，结果在 [-π, π]
+    x,y,z = v[0], v[1], v[2]
+    phi = np.arctan2(y, x)
+    
+    # 计算俯仰角，结果在 [0, π]
+    theta = np.arccos(z / np.sqrt(x**2 + y**2 + z**2))
+    
+    return np.degrees(phi), np.degrees(theta)
+
+def direction_vector_from_angles(phi, theta):
+    """
+    根据给定的方位角和俯仰角计算新的方向向量
+    :param phi: 方位角，单位为弧度
+    :param theta: 俯仰角，单位为弧度
+    :return: 新的方向向量
+    """
+    # 计算新的向量的x, y, z分量
+    x = np.sin(theta) * np.cos(phi)
+    y = np.sin(theta) * np.sin(phi)
+    z = np.cos(theta)
+    
+    # 返回新的方向向量
+    return np.array([x, y, z])
     
     
 
@@ -307,7 +339,7 @@ def rotate_vector_around_z_axis(v, theta):
 def simulated_annealing_pos(sketch_feature,scene_json, init_view,photo2sketch_model,swint_model):
     view = np.array(init_view)
     scene_sketch = scene2photo(scene_json,view)
-    scene_feature = inference(scene_sketch,True)
+    scene_feature = inference(scene_sketch,True,photo2sketch_model,swint_model)
     sketch_feature = np.array(sketch_feature)
     scene_feature = np.array(scene_feature)
     current_value = np.linalg.norm(sketch_feature,scene_feature)
@@ -316,16 +348,30 @@ def simulated_annealing_pos(sketch_feature,scene_json, init_view,photo2sketch_mo
     
     while temp > min_temp:
         new_view = view
-        rot_x=random.randint(0, 359)
-        rot_y=random.randint(0, 359)
-        rot_z=random.randint(0, 359)
-        new_view['direction']= rotate_vector_around_x_axis(new_view['direction'],rot_x)
-        new_view['direction']= rotate_vector_around_y_axis(new_view['direction'],rot_y)
-        new_view['direction']= rotate_vector_around_z_axis(new_view['direction'],rot_z)
+        phi, theta = cartesian_to_spherical(new_view['direction'])
+
+        phi_u, theta_u = cartesian_to_spherical(new_view['up'])
+
+
+
+        del_phi = random.randrange(0,359) * random.random() * temp / initial_temp
+        del_theta = random.randrange(0,90) * (random.random() - 0.5)* temp / initial_temp
+
+        phi += del_phi
         
+        theta+=del_theta
+
+        phi_u += del_phi
+        theta_u += del_theta
+        new_view['direction'] = direction_vector_from_angles(np.radians(phi), np.radians(theta))
+        new_view['up'] = direction_vector_from_angles(np.radians(phi_u), np.radians(theta_u))
+
+        assert(np.dot(new_view['direction'],new_view['up']) < 1e-6)
+
+        new_view['target'] = new_view['direction'] + new_view['origin']
 
         scene_sketch = scene2photo(scene_json,view)
-        scene_feature = inference(scene_sketch,True)
+        scene_feature = inference(scene_sketch,True,photo2sketch_model,swint_model)
         scene_feature = np.array(scene_feature)
         new_value = np.linalg.norm(sketch_feature,scene_feature)
         
@@ -342,7 +388,7 @@ def simulated_annealing_pos(sketch_feature,scene_json, init_view,photo2sketch_mo
 def simulated_annealing_rot(sketch_feature,scene_json, init_view,photo2sketch_model,swint_model):
     view = np.array(init_view)
     scene_sketch = scene2photo(scene_json,view)
-    scene_feature = inference(scene_sketch,True)
+    scene_feature = inference(scene_sketch,True,photo2sketch_model,swint_model)
     sketch_feature = np.array(sketch_feature)
     scene_feature = np.array(scene_feature)
     current_value = np.linalg.norm(sketch_feature,scene_feature)
@@ -354,7 +400,7 @@ def simulated_annealing_rot(sketch_feature,scene_json, init_view,photo2sketch_mo
         new_view['pos'] = new_view['pos'] + (random.random() - 0.5) * temp * new_view['direction']
         
         scene_sketch = scene2photo(scene_json,view)
-        scene_feature = inference(scene_sketch,True)
+        scene_feature = inference(scene_sketch,True,photo2sketch_model,swint_model)
         scene_feature = np.array(scene_feature)
         new_value = np.linalg.norm(sketch_feature,scene_feature)
         

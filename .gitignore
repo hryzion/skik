@@ -2,3 +2,6 @@
 __pycache__
 pretrained
 Swin-Transformer
+test
+run
+*.pth
