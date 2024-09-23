@@ -4,12 +4,14 @@ import numpy as np
 import cv2
 from config import *
 
+
 # 目标函数，这里以寻找某个函数的最小值为例
 def objective_function(x):
     return math.sin(x) * math.cos(x) + x * x
     
 
 def photo2sketch(photo,photo2sketch_model):
+    # print(photo.shape)
     return photo2sketch_model(photo)
 
 
@@ -33,7 +35,7 @@ def scene2photo(scene_json: dict, view: dict, roomid: str = ''):
     canvas_height = 600
 
     # 读取参数：相机位置、相机朝向
-    cam_pos: list = view.get('pos', [0, 0, 0])             # 相机中心点
+    cam_pos: list = view.get('origin', [0, 0, 0])             # 相机中心点
     cam_dir: list = view.get('direction', [0, 0, 1])       # 相机朝向
     
     # 将目标房间的包围盒存入列表
@@ -264,6 +266,7 @@ def swintransformer(sketch,swint_model):
     return swint_model.forward_features(sketch)
 
 def inference(sketch, is_from_scene,photo2sketch_model,swint_model):
+    print(sketch.shape)
     if is_from_scene:
         # transfer 2 sketch-sketch
         sketch = photo2sketch(sketch,photo2sketch_model)
@@ -337,7 +340,7 @@ def direction_vector_from_angles(phi, theta):
 
 # 模拟退火算法
 def simulated_annealing_pos(sketch_feature,scene_json, init_view,photo2sketch_model,swint_model):
-    view = np.array(init_view)
+    view = init_view
     scene_sketch = scene2photo(scene_json,view)
     scene_feature = inference(scene_sketch,True,photo2sketch_model,swint_model)
     sketch_feature = np.array(sketch_feature)
@@ -386,8 +389,9 @@ def simulated_annealing_pos(sketch_feature,scene_json, init_view,photo2sketch_mo
 
 
 def simulated_annealing_rot(sketch_feature,scene_json, init_view,photo2sketch_model,swint_model):
-    view = np.array(init_view)
+    view = init_view
     scene_sketch = scene2photo(scene_json,view)
+    print('scene_sketch', scene_sketch.shape)
     scene_feature = inference(scene_sketch,True,photo2sketch_model,swint_model)
     sketch_feature = np.array(sketch_feature)
     scene_feature = np.array(scene_feature)
@@ -417,7 +421,7 @@ def simulated_annealing_rot(sketch_feature,scene_json, init_view,photo2sketch_mo
     pass
 
 def simulated_annealing(sketch,scene_json, init_view,photo2sketch_model,swint_model):
-    sketch_feature = inference(sketch,False)
+    sketch_feature = inference(sketch,False,photo2sketch_model,swint_model)
     view = simulated_annealing_rot(sketch_feature,scene_json, init_view,photo2sketch_model,swint_model)
     view = simulated_annealing_pos(sketch_feature,scene_json, init_view,photo2sketch_model,swint_model)
     return view

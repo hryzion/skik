@@ -4,6 +4,8 @@ import json
 import numpy as np
 import cv2
 import torch
+from SKIS_model import SwinTransformerEncoder
+from networks import ResnetGenerator
 
 # 参数设置
 initial_temp = 10000    # 初始温度
@@ -38,33 +40,53 @@ def initialize_view(scene_json:dict):
 
 def sketch2view(sketch, scene_json,photo2sketch_model,swint_model):
     init_view = initialize_view(scene_json)
-    simulated_annealing(sketch, scene_json, init_view,photo2sketch_model,swint_model)
+    view = simulated_annealing(sketch, scene_json, init_view,photo2sketch_model,swint_model)
+    return view
     
-    pass
 
 
 # 读入scenejson
 def main():
     scene_root_path = r"D:\zhx_workspace\3DScenePlatformDev\dataset\Levels2021"
-    scene_name = ""
+    scene_name = "000ecb5b-b877-4f9a-ab6f-90f385931658.json"
     
     img_root_path = './test'
     img_name = 'sketch1.jpg'
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     scene_json_pt = os.path.join(scene_root_path,scene_name)
     sketch_pt =  os.path.join(img_root_path,img_name)
     scene_json = []
     sketch = []
 
-    photo2sketch_model_path = './lastest_net_G.pth'
-    photo2sketch_model = torch.load(photo2sketch_model_path)
+    photo2sketch_model_path = './latest_net_G.pth'
+    photo2sketch_model = ResnetGenerator(
+        input_nc=3,
+        output_nc=1,
+        use_dropout=False,
+        n_blocks=9
+    )
+    photo2sketch_model.load_state_dict(torch.load(photo2sketch_model_path))
+    
 
     swint_model_path = './best.pth'
     swint_model = torch.load(swint_model_path)
+    # swint_model = SwinTransformerEncoder()
+    # swint_model.load_state_dict(torch.load(swint_model_path))
+    
 
     with open(scene_json_pt, 'r') as f:
-        scene_json = json.loads(f)
-    sketch = cv2.imread(sketch_pt)
+        scene_json = json.load(f)
+    sketch = np.array(cv2.imread(sketch_pt))
+    
+    sketch = cv2.resize(sketch,(224,224))
+    sketch = sketch.transpose((2,0,1))
+    sketch = np.expand_dims(sketch,0).astype(np.float32)
+    print(sketch.shape)
+    sketch = torch.from_numpy(sketch).to(device)
+    
+    
     potential_view = sketch2view(sketch,scene_json,photo2sketch_model,swint_model)
     scene_json["PerspectiveCamera"] = potential_view
     with open('./run/test.json', 'w') as f:

@@ -31,7 +31,7 @@ def main():
     optimizer = optim.Adam(skis_model.parameters(), lr=learing_rate)
     criterion = nn.CrossEntropyLoss()
     # 训练模型
-    device = torch.device( 'cpu')
+    device = torch.device('cpu')
     print(device)
     skis_model.to(device)
 
