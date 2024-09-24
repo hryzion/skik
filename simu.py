@@ -3,6 +3,10 @@ import random
 import numpy as np
 import cv2
 from config import *
+import torch
+import matplotlib.pyplot as plt
+from PIL import Image
+import torchvision.transforms as transforms
 
 
 # 目标函数，这里以寻找某个函数的最小值为例
@@ -12,6 +16,18 @@ def objective_function(x):
 
 def photo2sketch(photo,photo2sketch_model):
     # print(photo.shape)
+    
+    photo = Image.fromarray(photo).convert('RGB')
+    photo = photo.resize((224, 224), Image.BICUBIC)
+    # photo.show()
+
+    
+    photo = transforms.ToTensor()(photo)
+    photo = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))(photo)
+    photo = photo.unsqueeze(0)
+    
+    
+    
     return photo2sketch_model(photo)
 
 
@@ -25,13 +41,18 @@ view: {'pos':[x, y, z], 'direction':[dx, dy, dz]}
 def scene2photo(scene_json: dict, view: dict, roomid: str = ''):
     # 可修改参数：横向fov，图片宽度、高度
     fov_large = 120                                   # 放一个更大的角度做初始绘制，再裁剪为目标角度，能够一定程度上优化结果
-    fov_target = 75                                   # 相机与画布的目标角度
+    fov_target = 120                                   # 相机与画布的目标角度
     canvas_width = 800                                # 横纵比 4:3
     canvas_height = 600
+    # print(view)
+
+    
 
     # 读取参数：相机位置、相机朝向
-    cam_pos: list = view.get('pos', [0, 0, 0])             # 相机中心点
+    cam_pos: list = view.get('origin', [0, 0, 0])             # 相机中心点
     cam_dir: list = view.get('direction', [0, 0, 1])       # 相机朝向
+
+
     
     # 将目标房间的包围盒存入列表
     rooms: list = scene_json.get('rooms', [])
@@ -98,6 +119,8 @@ def scene2photo(scene_json: dict, view: dict, roomid: str = ''):
 
     # 创建一个空白图像，单通道（灰度图）
     image_large = np.ones((canvas_height, canvas_width), dtype=np.uint8)
+    image_large *= 255
+    
 
     # 绘制包围盒
     for bbox in bboxes:
@@ -156,7 +179,8 @@ def scene2photo(scene_json: dict, view: dict, roomid: str = ''):
                 p2 = project_to_canvas(end_point, canvas_width_world_large, canvas_height_world_large)
 
                 # 绘制线段到图像上（单通道图像，颜色值为1）
-                cv2.line(image_large, p1, p2, color=0, thickness=1)
+                
+                cv2.line(image_large, p1, p2, color=0, thickness=5)
 
 
     def divide_line_into_segments(roomShape, num_segments=30):
@@ -206,7 +230,8 @@ def scene2photo(scene_json: dict, view: dict, roomid: str = ''):
             if start_point is not None and end_point is not None:
                 p1 = project_to_canvas(start_point, canvas_width_world_large, canvas_height_world_large)
                 p2 = project_to_canvas(end_point, canvas_width_world_large, canvas_height_world_large)
-                cv2.line(image_large, p1, p2, color=0, thickness=1)
+                # print(p1,p2)
+                cv2.line(image_large, p1, p2, color=0, thickness=5)
 
     
 
@@ -244,7 +269,8 @@ def scene2photo(scene_json: dict, view: dict, roomid: str = ''):
             if start_point is not None and end_point is not None:
                 p1 = project_to_canvas(start_point, canvas_width_world_large, canvas_height_world_large)
                 p2 = project_to_canvas(end_point, canvas_width_world_large, canvas_height_world_large)
-                cv2.line(image_large, p1, p2, color=0, thickness=1)
+                
+                cv2.line(image_large, p1, p2, color=0, thickness=5)
 
     # 计算裁剪范围，以fov=75度为目标
     crop_x_min = int((canvas_width / 2) - (canvas_width * (canvas_width_world_target / canvas_width_world_large) / 2))
@@ -254,18 +280,35 @@ def scene2photo(scene_json: dict, view: dict, roomid: str = ''):
 
     # 裁剪图像，得到目标fov下的画布
     image_cropped = image_large[crop_y_min:crop_y_max, crop_x_min:crop_x_max]
-    image_cropped = np.expand_dims(np.expand_dims(image_cropped, axis=0), axis=0)
+    # image_cropped = np.expand_dims(image_cropped, axis=-1)
+    # plt.imshow(image_large,cmap='gray')
+    # cv2.imshow('test', image_large)
+    # cv2.waitKey(0)
     return image_cropped
 
 def swintransformer(sketch,swint_model):
     return swint_model.forward_features(sketch)
 
-def inference(sketch, is_from_scene,photo2sketch_model,swint_model):
-    print(sketch.shape)
+def inference(sketch, is_from_scene, photo2sketch_model, swint_model):
+    
     if is_from_scene:
         # transfer 2 sketch-sketch
-        sketch = photo2sketch(sketch,photo2sketch_model)
-    return swintransformer(sketch,swint_model)
+        # sketch = photo2sketch(sketch,photo2sketch_model)
+        
+        # print(sketch)
+        # sketch = sketch.detach()[0][0].numpy()
+        # print(sketch)
+        # exit()
+        sketch = cv2.resize(sketch,(224,224))
+        sketch = cv2.cvtColor(sketch,cv2.COLOR_GRAY2BGR)
+        sketch = transforms.ToTensor()(sketch)
+        sketch= sketch.unsqueeze(0)
+    sketch = sketch.to('cuda')
+    feat = swintransformer(sketch,swint_model).flatten()
+    feat = feat.detach().cpu().numpy()
+    
+    # print(feat.shape)
+    return feat
 
 
 
@@ -298,6 +341,35 @@ def rotate_vector_around_z_axis(v, theta):
         [0, 0, 1]
     ])
     return np.dot(rotation_matrix, v)
+
+def rotate_vector_3d(v, theta_x, theta_y, theta_z):
+    # 转换角度为弧度
+    theta_x = np.radians(theta_x)
+    theta_y = np.radians(theta_y)
+    theta_z = np.radians(theta_z)
+    
+    # 定义旋转矩阵
+    R_x = np.array([
+        [1, 0, 0],
+        [0, np.cos(theta_x), -np.sin(theta_x)],
+        [0, np.sin(theta_x), np.cos(theta_x)]
+    ])
+    
+    R_y = np.array([
+        [np.cos(theta_y), 0, np.sin(theta_y)],
+        [0, 1, 0],
+        [-np.sin(theta_y), 0, np.cos(theta_y)]
+    ])
+    
+    R_z = np.array([
+        [np.cos(theta_z), -np.sin(theta_z), 0],
+        [np.sin(theta_z), np.cos(theta_z), 0],
+        [0, 0, 1]
+    ])
+    
+    # 组合旋转
+    v_rotated = np.dot(R_z, np.dot(R_y, np.dot(R_x, v)))
+    return v_rotated
 
 def cartesian_to_spherical(v):
     """
@@ -334,48 +406,39 @@ def direction_vector_from_angles(phi, theta):
     
 
 # 模拟退火算法
-def simulated_annealing_pos(sketch_feature,scene_json, init_view,photo2sketch_model,swint_model):
+def simulated_annealing_rot(sketch_feature,scene_json, init_view,photo2sketch_model,swint_model):
     view = init_view
     scene_sketch = scene2photo(scene_json,view)
     scene_feature = inference(scene_sketch,True,photo2sketch_model,swint_model)
-    sketch_feature = np.array(sketch_feature)
-    scene_feature = np.array(scene_feature)
-    current_value = np.linalg.norm(sketch_feature,scene_feature)
+    
+    current_value = np.linalg.norm(sketch_feature-scene_feature)
 
     temp = initial_temp
     
     while temp > min_temp:
         new_view = view
-        phi, theta = cartesian_to_spherical(new_view['direction'])
+        dtheta_x = random.randint(0,359) * temp*(random.random()-0.5)
+        dtheta_y = random.randint(0,359) * temp*(random.random()-0.5)
+        dtheta_z = random.randint(0,359) * temp*(random.random()-0.5)
 
-        phi_u, theta_u = cartesian_to_spherical(new_view['up'])
-
-
-
-        del_phi = random.randrange(0,359) * random.random() * temp / initial_temp
-        del_theta = random.randrange(0,90) * (random.random() - 0.5)* temp / initial_temp
-
-        phi += del_phi
+        new_view['direction'] = rotate_vector_3d(new_view['direction'],dtheta_x,dtheta_y,dtheta_z)
+        new_view['up'] = rotate_vector_3d(new_view['up'],dtheta_x,dtheta_y,dtheta_z)
         
-        theta+=del_theta
-
-        phi_u += del_phi
-        theta_u += del_theta
-        new_view['direction'] = direction_vector_from_angles(np.radians(phi), np.radians(theta))
-        new_view['up'] = direction_vector_from_angles(np.radians(phi_u), np.radians(theta_u))
-
+        # print(new_view['up'], new_view['direction'])
+        # print(np.dot(new_view['direction'],new_view['up']))
         assert(np.dot(new_view['direction'],new_view['up']) < 1e-6)
 
         new_view['target'] = new_view['direction'] + new_view['origin']
 
         scene_sketch = scene2photo(scene_json,view)
         scene_feature = inference(scene_sketch,True,photo2sketch_model,swint_model)
-        scene_feature = np.array(scene_feature)
-        new_value = np.linalg.norm(sketch_feature,scene_feature)
+        
+        new_value = np.linalg.norm(sketch_feature-scene_feature)
         
         # 计算接受概率
         if new_value < current_value or random.random() < math.exp((current_value - new_value) / temp):
             view = new_view
+            current_value = new_value
         
         # 降温
         temp *= cooling_rate
@@ -383,25 +446,25 @@ def simulated_annealing_pos(sketch_feature,scene_json, init_view,photo2sketch_mo
     return view
 
 
-def simulated_annealing_rot(sketch_feature,scene_json, init_view,photo2sketch_model,swint_model):
+def simulated_annealing_pos(sketch_feature,scene_json, init_view,photo2sketch_model,swint_model):
     view = init_view
     scene_sketch = scene2photo(scene_json,view)
-    print('scene_sketch', scene_sketch.shape)
+    # print('scene_sketch', scene_sketch.shape)
     scene_feature = inference(scene_sketch,True,photo2sketch_model,swint_model)
-    sketch_feature = np.array(sketch_feature)
-    scene_feature = np.array(scene_feature)
-    current_value = np.linalg.norm(sketch_feature,scene_feature)
+    
+    current_value = np.linalg.norm(sketch_feature-scene_feature)
 
     temp = initial_temp
     
     while temp > min_temp:
         new_view = view
-        new_view['pos'] = new_view['pos'] + (random.random() - 0.5) * temp * new_view['direction']
+        # print(new_view)
+        new_view['origin'] = np.array(new_view['origin']) + (random.random() - 0.5) * temp * np.array(new_view['direction'])
         
         scene_sketch = scene2photo(scene_json,view)
         scene_feature = inference(scene_sketch,True,photo2sketch_model,swint_model)
-        scene_feature = np.array(scene_feature)
-        new_value = np.linalg.norm(sketch_feature,scene_feature)
+        
+        new_value = np.linalg.norm(sketch_feature-scene_feature)
         
         # 计算接受概率
         if new_value < current_value or random.random() < math.exp((current_value - new_value) / temp):
@@ -418,7 +481,9 @@ def simulated_annealing_rot(sketch_feature,scene_json, init_view,photo2sketch_mo
 def simulated_annealing(sketch,scene_json, init_view,photo2sketch_model,swint_model):
     sketch_feature = inference(sketch,False,photo2sketch_model,swint_model)
     view = simulated_annealing_rot(sketch_feature,scene_json, init_view,photo2sketch_model,swint_model)
+    print('finish annealing_rot')
     view = simulated_annealing_pos(sketch_feature,scene_json, init_view,photo2sketch_model,swint_model)
+    print('finish annealing_pos')
     return view
     
 

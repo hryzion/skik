@@ -685,7 +685,7 @@ class SwinTransformerEncoder(nn.Module):
         x = self.norm(x)  # B L C
         assert(x.shape[1]==self.window_size*self.window_size)
         x = x.transpose(2,1) # B C L
-        x = x.reshape(-1,self.embed_dim,self.window_size, self.window_size) # B, C, H, W
+        x = x.reshape(-1,self.embed_dim*2**(self.num_layers-1),self.window_size, self.window_size) # B, C, H, W
         # x = self.avgpool(x.transpose(1, 2))  # B C 1
         # x = torch.flatten(x, 1)
         return x

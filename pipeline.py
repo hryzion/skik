@@ -13,6 +13,8 @@ cooling_rate = 0.99     # 冷却速率
 min_temp = 1            # 最小温度
 initial_solution = 0    # 初始解
 
+room_id = 1
+
 
 
 '''
@@ -23,7 +25,8 @@ direction: scene json的front方向
 '''
 
 def initialize_view(scene_json:dict):
-    bbox_dict: dict = scene_json.get('bbox', {})
+    room_json = scene_json['rooms'][0]
+    bbox_dict: dict = room_json.get('bbox', {})
     min_list: list = bbox_dict.get('min', [0, 0, 0])
     max_list: list = bbox_dict.get('max', [0, 0, 0])
     # origin_list: list = [(i+j)/2 for i, j in zip(min_list, max_list)]
@@ -32,15 +35,16 @@ def initialize_view(scene_json:dict):
         1.3,
         (min_list[2] + max_list[2]) / 2
     ]
-    origin_list = np.array(origin_list)
+    origin_list = np.array(origin_list,float)
     dir_list: list = scene_json.get('front', [0, 0, 1])
-    dir_list = np.array(dir_list)
-    up = np.array([0,1,0])
-    return {'origin': origin_list, 'direction': dir_list, 'target':origin_list+dir_list, "up":up}
+    dir_list = np.array(dir_list,float)
+    
+    up = np.array([0,1,0],float)
+    return {'origin': list(origin_list), 'direction': list(dir_list), 'target':list(origin_list+dir_list), "up":list(up)}
 
-def sketch2view(sketch, scene_json,photo2sketch_model,swint_model):
+def sketch2view(sketch, scene_json, photo2sketch_model,swint_model):
     init_view = initialize_view(scene_json)
-    view = simulated_annealing(sketch, scene_json, init_view,photo2sketch_model,swint_model)
+    view = simulated_annealing(sketch, scene_json, init_view, photo2sketch_model, swint_model)
     return view
     
 
@@ -78,6 +82,10 @@ def main():
 
     with open(scene_json_pt, 'r') as f:
         scene_json = json.load(f)
+
+    room_json = scene_json['rooms'][room_id]
+    scene_json['rooms'] = []
+    scene_json['rooms'].append(room_json)
     sketch = np.array(cv2.imread(sketch_pt))
     
     sketch = cv2.resize(sketch,(224,224))
@@ -86,14 +94,28 @@ def main():
     print(sketch.shape)
     sketch = torch.from_numpy(sketch).to(device)
     
-    
+    test(scene_json)
     potential_view = sketch2view(sketch,scene_json,photo2sketch_model,swint_model)
     scene_json["PerspectiveCamera"] = potential_view
+    scene_json["PerspectiveCamera"]['fov'] = 75
+    scene_json['canvas'] = {
+         "width": 600,
+        "height": 337
+    }
     with open('./run/test.json', 'w') as f:
         json.dump(scene_json, f)
         f.close()
 
-
-
+def test(scene_json):
+    scene_json["PerspectiveCamera"] = initialize_view(scene_json)
+    scene_json["PerspectiveCamera"]['fov'] = 75
+    scene_json['canvas'] = {
+         "width": 600,
+        "height": 337
+    }
+    with open('./trash/test.json', 'w') as f:
+        json.dump(scene_json, f)
+        f.close()
 if __name__ == "__main__":
     main()
+    # test()
