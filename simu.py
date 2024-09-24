@@ -37,6 +37,11 @@ def photo2sketch(photo,photo2sketch_model):
 view: {'pos':[x, y, z], 'direction':[dx, dy, dz]}
 注意: roomid: scene_json中的id, 为一个字符串,如果字符串为空,则默认为第一个. 如果不符合需要请调整
 裁剪后, 图片shape为 (1, 1, 265, 355), 奇怪的尺寸是裁剪的原因
+
+如需保存为图片：
+    import matplotlib.pyplot as plt
+    plt.imshow(image[0,0], cmap='gray')
+    plt.savefig('1.png')
 '''
 def scene2photo(scene_json: dict, view: dict, roomid: str = ''):
     # 可修改参数：横向fov，图片宽度、高度
