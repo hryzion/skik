@@ -49,10 +49,10 @@ def sketch2view(sketch, scene_json, photo2sketch_model,swint_model):
 
 # 读入scenejson
 def main():
-    scene_root_path = r"D:\zhx_workspace\3DScenePlatformDev\dataset\Levels2021"
+    scene_root_path = "./data/scenes"
     scene_name = "000ecb5b-b877-4f9a-ab6f-90f385931658.json"
     
-    img_root_path = './test'
+    img_root_path = './data/sketch'
     img_name = 'sketch1.jpg'
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

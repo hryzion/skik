@@ -7,6 +7,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from skimage import img_as_ubyte
+from networks import ResnetGenerator
+from operate import operate
 
 # io utils
 from pytorch3d.io import load_obj
@@ -32,9 +34,54 @@ if torch.cuda.is_available():
 else:
     device = torch.device("cpu")
 
+
+
+scene_root_path = "./data/scenes"
+scene_name = "000ecb5b-b877-4f9a-ab6f-90f385931658.json"
+    
+img_root_path = './data/sketch'
+img_name = 'sketch1.jpg'
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+scene_json_pt = os.path.join(scene_root_path,scene_name)
+sketch_pt = os.path.join(img_root_path,img_name)
+scene_json = []
+sketch = []
+
+photo2sketch_model_path = './latest_net_G.pth'
+photo2sketch_model = ResnetGenerator(
+    input_nc=3,
+    output_nc=1,
+    use_dropout=False,
+    n_blocks=9
+)
+photo2sketch_model.load_state_dict(torch.load(photo2sketch_model_path))
+    
+operate(scene_json_pt)
+
+
+
+
+
+
+
+
+
 # Load the obj and ignore the textures and materials.
-verts, faces_idx, _ = load_obj("./data/teapot.obj")
+verts, faces_idx, _ = load_obj("./total.obj")
 faces = faces_idx.verts_idx
+
+
+
+
+
+
+
+
+
+
+
 
 # Initialize each vertex to be white in color.
 verts_rgb = torch.ones_like(verts)[None]  # (1, V, 3)
