@@ -258,4 +258,4 @@ def operate(file_path):
 
 
 if __name__ == '__main__':
-    operate("./000ecb5b-b877-4f9a-ab6f-90f385931658.json")
+    operate(rf"D:\zhx_workspace\3DScenePlatformDev\dataset\Levels2021\000ecb5b-b877-4f9a-ab6f-90f385931658.json")
