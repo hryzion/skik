@@ -175,6 +175,43 @@ def create_roomobj(r,vertex_cnt,vt_cnt,vn_cnt):
     model['f']=faces
     return model,cnt1,cnt2,cnt3
 
+def write_obj(model_list,filename):
+    # 整合所有model中元素，输出到total.obj文件中
+    # 注意不要用连等号初始化
+    vlist=[]
+    vnlist=[]
+    vtlist=[]
+    flist=[]
+    for model in model_list:
+        vlist+=model['v']
+        vnlist+=model['vn']
+        vtlist+=model['vt']
+        flist+=model['f']
+
+    with open(filename,'w') as file:
+        file.write("mtllib total.mtl\n")
+        
+        for v in vlist:
+            file.write('v ')
+            file.write(' '.join(map(str,v)))
+            file.write('\n')
+        for vn in vnlist:
+            file.write('vn ')
+            file.write(' '.join(map(str,vn)))
+            file.write('\n')
+        for vt in vtlist:
+            file.write('vt ')
+            file.write(' '.join(map(str,vt)))
+            file.write('\n')
+        for f in flist:
+            file.write('f ')
+            for ele in f:
+                if len(ele)==1:
+                    file.write(str(ele[0]))
+                else:
+                    file.write('/'.join(map(str,ele)))
+                file.write(' ')
+            file.write('\n')
 
 def operate(file_path):
     data=load_json(file_path)
@@ -182,16 +219,21 @@ def operate(file_path):
 
     mid_list=[]
     model_list=[]
+    wall_model_list=[]
     vertex_cnt=0
     vt_cnt=0
     vn_cnt=0
+    wall_vertex_cnt=0
+    wall_vt_cnt=0
+    wall_vn_cnt=0
+
     for r in roomList:
         # 根据roomshape等参数构造room obj
-        model,cnt1,cnt2,cnt3=create_roomobj(r,vertex_cnt,vt_cnt,vn_cnt)
-        model_list.append(model)
-        vertex_cnt+=cnt1
-        vt_cnt+=cnt2
-        vn_cnt+=cnt3
+        model,cnt1,cnt2,cnt3=create_roomobj(r,wall_vertex_cnt,wall_vt_cnt,wall_vn_cnt)
+        wall_model_list.append(model)
+        wall_vertex_cnt+=cnt1
+        wall_vt_cnt+=cnt2
+        wall_vn_cnt+=cnt3
 
         #处理room.objlist中的物体
         objlist=r["objList"]
@@ -219,42 +261,8 @@ def operate(file_path):
     #将所有model的mtl文件整合，方便引用
     combine_mtl(mid_list)
 
-    # 整合所有model中元素，输出到total.obj文件中
-    # 注意不要用连等号初始化
-    vlist=[]
-    vnlist=[]
-    vtlist=[]
-    flist=[]
-    for model in model_list:
-        vlist+=model['v']
-        vnlist+=model['vn']
-        vtlist+=model['vt']
-        flist+=model['f']
-
-    with open("total.obj",'w') as file:
-        file.write("mtllib total.mtl\n")
-        
-        for v in vlist:
-            file.write('v ')
-            file.write(' '.join(map(str,v)))
-            file.write('\n')
-        for vn in vnlist:
-            file.write('vn ')
-            file.write(' '.join(map(str,vn)))
-            file.write('\n')
-        for vt in vtlist:
-            file.write('vt ')
-            file.write(' '.join(map(str,vt)))
-            file.write('\n')
-        for f in flist:
-            file.write('f ')
-            for ele in f:
-                if len(ele)==1:
-                    file.write(str(ele[0]))
-                else:
-                    file.write('/'.join(map(str,ele)))
-                file.write(' ')
-            file.write('\n')
+    write_obj(model_list,"model.obj")
+    write_obj(wall_model_list,"wall.obj")
 
 
 if __name__ == '__main__':
