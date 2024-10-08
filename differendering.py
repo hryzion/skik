@@ -8,7 +8,7 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from skimage import img_as_ubyte
 from networks import ResnetGenerator
-from operate import operate
+import cv2
 
 # io utils
 from pytorch3d.io import load_obj
@@ -37,7 +37,7 @@ else:
 
 
 scene_root_path = "./data/scenes"
-scene_name = "000ecb5b-b877-4f9a-ab6f-90f385931658.json"
+scene_name = "000ecb5b-b877-4f9a-ab6f-90f385931658.obj"
     
 img_root_path = './data/sketch'
 img_name = 'sketch1.jpg'
@@ -57,8 +57,11 @@ photo2sketch_model = ResnetGenerator(
     n_blocks=9
 )
 photo2sketch_model.load_state_dict(torch.load(photo2sketch_model_path))
-    
-operate(scene_json_pt)
+
+
+
+# transfer scenejson to mesh
+# operate(scene_json_pt)
 
 
 
@@ -69,7 +72,7 @@ operate(scene_json_pt)
 
 
 # Load the obj and ignore the textures and materials.
-verts, faces_idx, _ = load_obj("./total.obj")
+verts, faces_idx, _ = load_obj(scene_json_pt)
 faces = faces_idx.verts_idx
 
 
@@ -131,11 +134,11 @@ raster_settings = RasterizationSettings(
 # We can add a point light in front of the object. 
 lights = PointLights(device=device, location=((2.0, 2.0, -2.0),))
 phong_renderer = MeshRenderer(
-    rasterizer=MeshRasterizer(
+    rasterizer = MeshRasterizer(
         cameras=cameras, 
         raster_settings=raster_settings
     ),
-    shader=HardPhongShader(device=device, cameras=cameras, lights=lights)
+    shader = HardPhongShader(device=device, cameras=cameras, lights=lights)
 )
 
 
@@ -151,9 +154,14 @@ R, T = look_at_view_transform(distance, elevation, azimuth, device=device)
 # Render the teapot providing the values of R and T. 
 silhouette = silhouette_renderer(meshes_world=teapot_mesh, R=R, T=T)
 image_ref = phong_renderer(meshes_world=teapot_mesh, R=R, T=T)
+sketch_ref = cv2.imread(sketch_pt)
 
 silhouette = silhouette.cpu().numpy()
 image_ref = image_ref.cpu().numpy()
+
+
+
+
 
 plt.figure(figsize=(10, 10))
 plt.subplot(1, 2, 1)
