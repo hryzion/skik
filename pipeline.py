@@ -1,19 +1,17 @@
 import os
-from simu import simulated_annealing
+from simu import simulated_annealing,scene2photo,inference
 import json
 import numpy as np
 import cv2
 import torch
 from SKIS_model import SwinTransformerEncoder
 from networks import ResnetGenerator
+import copy
+import torchvision.transforms as transforms
 
-# 参数设置
-initial_temp = 10000    # 初始温度
-cooling_rate = 0.99     # 冷却速率
-min_temp = 1            # 最小温度
-initial_solution = 0    # 初始解
 
-room_id = 1
+
+room_id = 6
 
 
 
@@ -60,7 +58,7 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     scene_json_pt = os.path.join(scene_root_path,scene_name)
-    sketch_pt =  os.path.join(img_root_path,img_name)
+    sketch_pt = os.path.join(img_root_path,img_name)
     scene_json = []
     sketch = []
 
@@ -87,7 +85,9 @@ def main():
     scene_json['rooms'] = []
     scene_json['rooms'].append(room_json)
     sketch = np.array(cv2.imread(sketch_pt))
-    
+
+    # 给json做个备份 防止里面的墙体被修改
+    in_scene_json = copy.deepcopy(scene_json)
     sketch = cv2.resize(sketch,(224,224))
     sketch = sketch.transpose((2,0,1))
     sketch = np.expand_dims(sketch,0).astype(np.float32)
@@ -95,7 +95,11 @@ def main():
     sketch = torch.from_numpy(sketch).to(device)
     
     test(scene_json)
-    potential_view = sketch2view(sketch,scene_json,photo2sketch_model,swint_model)
+
+    # 使用备份json进行计算，将计算机结果插入到原json中
+    potential_view = sketch2view(sketch,in_scene_json,photo2sketch_model,swint_model)
+    for key in potential_view.keys():
+        potential_view[key] = potential_view[key].tolist()
     scene_json["PerspectiveCamera"] = potential_view
     scene_json["PerspectiveCamera"]['fov'] = 75
     scene_json['canvas'] = {
@@ -116,6 +120,50 @@ def test(scene_json):
     with open('./trash/test.json', 'w') as f:
         json.dump(scene_json, f)
         f.close()
+
+
+def validation():
+    scene_root_path = './run/test_view2.json'
+    with open(scene_root_path, 'r') as f:
+        scene_json = json.load(f)
+    view = scene_json['PerspectiveCamera']
+    view['direction'] = np.array(view['target']) - np.array(view['origin'])
+    view['direction'] /= np.linalg.norm(view['direction'])
+    up = np.array(view['up'])
+    direction = np.array(view['direction'])
+    print(np.dot(up,direction))
+    test_photo = scene2photo(copy.deepcopy(scene_json),view,debug=True)
+    sketch_pt = './test/sketch1.jpg'
+    sketch = np.array(cv2.imread(sketch_pt))
+    sketch_pt = './test/sketch6.jpg'
+    sketch2 = np.array(cv2.imread(sketch_pt))
+
+    swint_model_path = './best.pth'
+    swint_model = torch.load(swint_model_path)
+
+    sketch = cv2.resize(sketch,(224,224))
+    sketch = sketch.transpose((2,0,1))
+    sketch = np.expand_dims(sketch,0).astype(np.float32)
+    sketch = torch.from_numpy(sketch).to('cuda')
+    sketch_feature = swint_model(sketch).flatten().detach().cpu().numpy()
+
+    sketch2 = cv2.resize(sketch2,(224,224))
+    sketch2 = sketch2.transpose((2,0,1))
+    sketch2 = np.expand_dims(sketch2,0).astype(np.float32)
+    sketch2 = torch.from_numpy(sketch2).to('cuda')
+    sketch2_feature = swint_model(sketch2).flatten().detach().cpu().numpy()
+
+    test_photo = cv2.resize(test_photo,(224,224))
+    test_photo = cv2.cvtColor(test_photo,cv2.COLOR_GRAY2BGR)
+    test_photo = transforms.ToTensor()(test_photo)
+    test_photo = test_photo.unsqueeze(0)
+    test_photo = test_photo.to('cuda')
+    test_feature = swint_model(test_photo).flatten().detach().cpu().numpy()
+
+    print(np.linalg.norm(sketch_feature-test_feature))
+    print(np.linalg.norm(sketch_feature-sketch2_feature))
+
 if __name__ == "__main__":
     main()
     # test()
+    # validation()
