@@ -200,6 +200,17 @@ class Model(nn.Module):
         loss = torch.sum((image[..., 3] - self.image_ref) ** 2)
         return loss, image
     
+    def rec_loss(self, image):
+        l2_loss = torch.sum((image[..., 3] - self.image_ref) ** 2)
+        with torch.no_grad():
+            input_feature = self.encoder(self.image_ref)
+            now_feature = self.encoder(image)
+            f_loss = torch.sum((input_feature-now_feature)**2)
+        return 0.5 * l2_loss + 0.5 * f_loss
+        
+        
+
+
 
     # We will save images periodically and compose them into a GIF.
 filename_output = "./teapot_optimization_demo.gif"
