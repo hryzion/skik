@@ -173,12 +173,13 @@ plt.grid(False)
 
 
 class Model(nn.Module):
-    def __init__(self, meshes, renderer, image_ref):
+    def __init__(self, meshes, renderer, image_ref,encoder, p2s):
         super().__init__()
         self.meshes = meshes
         self.device = meshes.device
         self.renderer = renderer
-        
+        self.encoder = encoder
+        self.p2s = p2s
         # Get the silhouette of the reference RGB image by finding all non-white pixel values. 
         image_ref = torch.from_numpy((image_ref[..., :3].max(-1) != 1).astype(np.float32))
         self.register_buffer('image_ref', image_ref)
@@ -207,7 +208,12 @@ class Model(nn.Module):
             now_feature = self.encoder(image)
             f_loss = torch.sum((input_feature-now_feature)**2)
         return 0.5 * l2_loss + 0.5 * f_loss
-        
+    
+
+    def photo2sketch(self, render_image):
+        with torch.no_grad():
+            render_sketch = self.p2s(render_image)
+            return render_sketch
         
 
 
@@ -241,7 +247,9 @@ plt.title("Reference silhouette")
 loop = tqdm(range(200))
 for i in loop:
     optimizer.zero_grad()
-    loss, _ = model()
+    _, render_image = model()
+    sketch = model.photo2sketch(render_image)
+    loss = model.rec_loss(sketch)
     loss.backward()
     optimizer.step()
     
