@@ -8,7 +8,9 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from skimage import img_as_ubyte
 from networks import ResnetGenerator
+import torchvision.transforms as transforms
 import cv2
+from PIL import Image
 
 # io utils
 from pytorch3d.io import load_obj
@@ -36,8 +38,10 @@ else:
 
 
 
+
 scene_root_path = "./data/scenes"
-scene_name = "000ecb5b-b877-4f9a-ab6f-90f385931658.obj"
+scene_name = "model.obj"
+#"000ecb5b-b877-4f9a-ab6f-90f385931658.obj"
     
 img_root_path = './data/sketch'
 img_name = 'sketch1.jpg'
@@ -58,7 +62,8 @@ photo2sketch_model = ResnetGenerator(
 )
 photo2sketch_model.load_state_dict(torch.load(photo2sketch_model_path))
 
-
+swint_model_path = './best.pth'
+swint_model = torch.load(swint_model_path)
 
 # transfer scenejson to mesh
 # operate(scene_json_pt)
@@ -110,7 +115,7 @@ blend_params = BlendParams(sigma=1e-4, gamma=1e-4)
 # explanations of these parameters. Refer to docs/notes/renderer.md for an explanation of 
 # the difference between naive and coarse-to-fine rasterization. 
 raster_settings = RasterizationSettings(
-    image_size=256, 
+    image_size=224, 
     blur_radius=np.log(1. / 1e-4 - 1.) * blend_params.sigma, 
     faces_per_pixel=100, 
 )
@@ -127,7 +132,7 @@ silhouette_renderer = MeshRenderer(
 
 # We will also create a Phong renderer. This is simpler and only needs to render one face per pixel.
 raster_settings = RasterizationSettings(
-    image_size=256, 
+    image_size=224, 
     blur_radius=0.0, 
     faces_per_pixel=1, 
 )
@@ -144,12 +149,17 @@ phong_renderer = MeshRenderer(
 
 
 # Select the viewpoint using spherical angles  
-distance = 3   # distance from camera to the object
+distance = 20   # distance from camera to the object
 elevation = 50.0   # angle of elevation in degrees
 azimuth = 0.0  # No rotation so the camera is positioned on the +Z axis. 
 
+eye = torch.Tensor([[0,2,4]])
+at = torch.Tensor([[-1.5,1,0]])
+
+
 # Get the position of the camera based on the spherical angles
-R, T = look_at_view_transform(distance, elevation, azimuth, device=device)
+# R, T = look_at_view_transform(distance, elevation, azimuth, device=device)
+R, T = look_at_view_transform(eye=eye,at = at, device=device)
 
 # Render the teapot providing the values of R and T. 
 silhouette = silhouette_renderer(meshes_world=teapot_mesh, R=R, T=T)
@@ -160,16 +170,19 @@ silhouette = silhouette.cpu().numpy()
 image_ref = image_ref.cpu().numpy()
 
 
-
-
+print('here')
+print(image_ref)
 
 plt.figure(figsize=(10, 10))
 plt.subplot(1, 2, 1)
-plt.imshow(silhouette.squeeze()[..., 3])  # only plot the alpha channel of the RGBA image
+plt.imshow(silhouette.squeeze()[...,3])  # only plot the alpha channel of the RGBA image
 plt.grid(False)
 plt.subplot(1, 2, 2)
 plt.imshow(image_ref.squeeze())
 plt.grid(False)
+plt.show()
+
+
 
 
 class Model(nn.Module):
@@ -181,39 +194,66 @@ class Model(nn.Module):
         self.encoder = encoder
         self.p2s = p2s
         # Get the silhouette of the reference RGB image by finding all non-white pixel values. 
-        image_ref = torch.from_numpy((image_ref[..., :3].max(-1) != 1).astype(np.float32))
+        image_ref = torch.from_numpy(image_ref.astype(np.float32))
+        print('image_ref shape: ', image_ref.shape)
         self.register_buffer('image_ref', image_ref)
         
         # Create an optimizable parameter for the x, y, z position of the camera. 
         self.camera_position = nn.Parameter(
-            torch.from_numpy(np.array([3.0,  6.9, +2.5], dtype=np.float32)).to(meshes.device))
+            torch.from_numpy(np.array([[0,  10, 1]], dtype=np.float32)).to(meshes.device))
+        
+        self.at = nn.Parameter(
+            torch.from_numpy(np.array([[0,0,0]], dtype= np.float32)).to(meshes.device)
+        )
 
     def forward(self):
         
         # Render the image using the updated camera position. Based on the new position of the 
         # camera we calculate the rotation and translation matrices
-        R = look_at_rotation(self.camera_position[None, :], device=self.device)  # (1, 3, 3)
-        T = -torch.bmm(R.transpose(1, 2), self.camera_position[None, :, None])[:, :, 0]   # (1, 3)
+        R, T = look_at_view_transform(eye=self.camera_position, at= self.at, device=self.device)
+
+        # R = look_at_rotation(self.camera_position[None, :], device=self.device)  # (1, 3, 3)
+        # T = -torch.bmm(R.transpose(1, 2), self.camera_position[None, :, None])[:, :, 0]   # (1, 3)
         
+
+
         image = self.renderer(meshes_world=self.meshes.clone(), R=R, T=T)
         
         # Calculate the silhouette loss
-        loss = torch.sum((image[..., 3] - self.image_ref) ** 2)
+        loss = torch.sum((image[..., 3] - self.image_ref[..., 3]) ** 2)
         return loss, image
     
     def rec_loss(self, image):
-        l2_loss = torch.sum((image[..., 3] - self.image_ref) ** 2)
-        with torch.no_grad():
-            input_feature = self.encoder(self.image_ref)
-            now_feature = self.encoder(image)
-            f_loss = torch.sum((input_feature-now_feature)**2)
-        return 0.5 * l2_loss + 0.5 * f_loss
+        l2_loss = torch.sum((image[..., 3] - self.image_ref[..., 3]) ** 2)
+        # with torch.no_grad():
+        #     im_r = self.image_ref.permute(0,3,1,2)
+        #     im = self.image_ref.permute(0,3,1,2)
+        #     input_feature = self.encoder.forward_features(im_r)
+        #     now_feature = self.encoder.forward_features(im)
+        # f_loss = torch.sum((input_feature-now_feature)**2)
+        return l2_loss
     
 
     def photo2sketch(self, render_image):
-        with torch.no_grad():
-            render_sketch = self.p2s(render_image)
-            return render_sketch
+        render_image = render_image[...,0:3]
+        # plt.figure(figsize=(10,10))
+        # plt.imshow(render_image.detach().squeeze().cpu().numpy())
+        # plt.show()
+        render_image = torch.permute(render_image,(0,3,1,2))
+        # cv2.imwrite('example1.png', render_image.detach().squeeze().cpu().numpy())
+        print("render image shape:",render_image.shape)
+        render_image = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))(render_image)
+        
+        # cv2.imshow('test', render_image.detach().squeeze().cpu().numpy())
+        # cv2.waitKey(0)
+       
+            
+        render_sketch = self.p2s(render_image)
+        print(render_sketch.shape)
+        # plt.figure(figsize=(10,10))
+        im = render_sketch.detach().squeeze().cpu().numpy()
+        
+        return render_sketch
         
 
 
@@ -223,7 +263,7 @@ filename_output = "./teapot_optimization_demo.gif"
 writer = imageio.get_writer(filename_output, mode='I', duration=0.3)
 
 # Initialize a model using the renderer, mesh and reference image
-model = Model(meshes=teapot_mesh, renderer=silhouette_renderer, image_ref=image_ref).to(device)
+model = Model(meshes=teapot_mesh, renderer=silhouette_renderer, image_ref=silhouette,encoder=swint_model,p2s=photo2sketch_model).to(device)
 
 # Create an optimizer. Here we are using Adam and we pass in the parameters of the model
 optimizer = torch.optim.Adam(model.parameters(), lr=0.05)
@@ -236,20 +276,23 @@ _, image_init = model()
 plt.subplot(1, 2, 1)
 plt.imshow(image_init.detach().squeeze().cpu().numpy()[..., 3])
 plt.grid(False)
-plt.title("Starting position")
+plt.title("start")
 
 plt.subplot(1, 2, 2)
-plt.imshow(model.image_ref.cpu().numpy().squeeze())
+plt.imshow(model.image_ref.cpu().numpy().squeeze()[..., 3])
 plt.grid(False)
 plt.title("Reference silhouette")
+
+plt.show()
 
 
 loop = tqdm(range(200))
 for i in loop:
     optimizer.zero_grad()
     _, render_image = model()
-    sketch = model.photo2sketch(render_image)
-    loss = model.rec_loss(sketch)
+    # sketch = model.photo2sketch(render_image)
+    loss = model.rec_loss(render_image)
+    print(loss)
     loss.backward()
     optimizer.step()
     
@@ -260,8 +303,11 @@ for i in loop:
     
     # Save outputs to create a GIF. 
     if i % 10 == 0:
-        R = look_at_rotation(model.camera_position[None, :], device=model.device)
-        T = -torch.bmm(R.transpose(1, 2), model.camera_position[None, :, None])[:, :, 0]   # (1, 3)
+        # R = look_at_rotation(model.camera_position[None, :], device=model.device)
+        # T = -torch.bmm(R.transpose(1, 2), model.camera_position[None, :, None])[:, :, 0]   # (1, 3)
+        
+        R, T = look_at_view_transform(eye=model.camera_position, at= model.at, device=model.device)
+
         image = phong_renderer(meshes_world=model.meshes.clone(), R=R, T=T)
         image = image[0, ..., :3].detach().squeeze().cpu().numpy()
         image = img_as_ubyte(image)
