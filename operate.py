@@ -154,7 +154,7 @@ def create_roomobj(r,vertex_cnt,vt_cnt,vn_cnt):
 
     #加入顶面和底面
     faces.append([(x,) for x in l1])
-    faces.append([(x,) for x in l2])
+    # faces.append([(x,) for x in l2])
 
     for i in range(len(roomshape)):
         #加入侧面
