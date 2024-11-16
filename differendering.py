@@ -26,6 +26,7 @@ from pytorch3d.renderer import (
     FoVPerspectiveCameras, look_at_view_transform, look_at_rotation, 
     RasterizationSettings, MeshRenderer, MeshRasterizer, BlendParams,
     SoftSilhouetteShader, HardPhongShader, PointLights, TexturesVertex,
+    
 )
 
 
@@ -148,6 +149,7 @@ phong_renderer = MeshRenderer(
 
 
 
+
 # Select the viewpoint using spherical angles  
 distance = 20   # distance from camera to the object
 elevation = 50.0   # angle of elevation in degrees
@@ -165,6 +167,13 @@ R, T = look_at_view_transform(eye=eye,at = at, device=device)
 silhouette = silhouette_renderer(meshes_world=teapot_mesh, R=R, T=T)
 image_ref = phong_renderer(meshes_world=teapot_mesh, R=R, T=T)
 sketch_ref = cv2.imread(sketch_pt)
+sketch_ref = cv2.resize(sketch_ref,(224,224))
+print(sketch_ref.shape)
+
+
+
+
+
 
 silhouette = silhouette.cpu().numpy()
 image_ref = image_ref.cpu().numpy()
@@ -178,7 +187,7 @@ plt.subplot(1, 2, 1)
 plt.imshow(silhouette.squeeze()[...,3])  # only plot the alpha channel of the RGBA image
 plt.grid(False)
 plt.subplot(1, 2, 2)
-plt.imshow(image_ref.squeeze())
+plt.imshow(sketch_ref.squeeze())
 plt.grid(False)
 plt.show()
 
@@ -200,16 +209,21 @@ class Model(nn.Module):
         
         # Create an optimizable parameter for the x, y, z position of the camera. 
         self.camera_position = nn.Parameter(
-            torch.from_numpy(np.array([[0,  10, 1]], dtype=np.float32)).to(meshes.device))
+            torch.from_numpy(np.array([[0, 2, 4]], dtype=np.float32)).to(meshes.device))
         
         self.at = nn.Parameter(
-            torch.from_numpy(np.array([[0,0,0]], dtype= np.float32)).to(meshes.device)
+            torch.from_numpy(np.array([[-1.5,0,0]], dtype= np.float32)).to(meshes.device)
+        )
+
+        self.direction = nn.Parameter(
+            torch.from_numpy(np.array([[0,-1,0]], dtype= np.float32)).to(meshes.device)
         )
 
     def forward(self):
         
         # Render the image using the updated camera position. Based on the new position of the 
         # camera we calculate the rotation and translation matrices
+        # self.direction = self.direction / torch.norm(self.direction)
         R, T = look_at_view_transform(eye=self.camera_position, at= self.at, device=self.device)
 
         # R = look_at_rotation(self.camera_position[None, :], device=self.device)  # (1, 3, 3)
@@ -220,11 +234,11 @@ class Model(nn.Module):
         image = self.renderer(meshes_world=self.meshes.clone(), R=R, T=T)
         
         # Calculate the silhouette loss
-        loss = torch.sum((image[..., 3] - self.image_ref[..., 3]) ** 2)
+        loss = torch.sum((image[..., 0:3] - self.image_ref[..., 0:3]) ** 2)
         return loss, image
     
     def rec_loss(self, image):
-        l2_loss = torch.sum((image[..., 3] - self.image_ref[..., 3]) ** 2)
+        l2_loss = 1/(image.shape[0]* image.shape[1])*torch.sum((image[..., 0:3] - self.image_ref[..., 0:3]) ** 2)
         # with torch.no_grad():
         #     im_r = self.image_ref.permute(0,3,1,2)
         #     im = self.image_ref.permute(0,3,1,2)
@@ -249,9 +263,11 @@ class Model(nn.Module):
        
             
         render_sketch = self.p2s(render_image)
-        print(render_sketch.shape)
-        # plt.figure(figsize=(10,10))
+        # print(render_sketch.shape)
+        plt.figure(figsize=(10,10))
         im = render_sketch.detach().squeeze().cpu().numpy()
+        plt.imshow(im)
+        plt.show()
         
         return render_sketch
         
@@ -263,7 +279,7 @@ filename_output = "./teapot_optimization_demo.gif"
 writer = imageio.get_writer(filename_output, mode='I', duration=0.3)
 
 # Initialize a model using the renderer, mesh and reference image
-model = Model(meshes=teapot_mesh, renderer=silhouette_renderer, image_ref=silhouette,encoder=swint_model,p2s=photo2sketch_model).to(device)
+model = Model(meshes=teapot_mesh, renderer=phong_renderer, image_ref=image_ref,encoder=swint_model,p2s=photo2sketch_model).to(device)
 
 # Create an optimizer. Here we are using Adam and we pass in the parameters of the model
 optimizer = torch.optim.Adam(model.parameters(), lr=0.05)
@@ -274,12 +290,12 @@ plt.figure(figsize=(10, 10))
 
 _, image_init = model()
 plt.subplot(1, 2, 1)
-plt.imshow(image_init.detach().squeeze().cpu().numpy()[..., 3])
+plt.imshow(image_init.detach().squeeze().cpu().numpy()[..., 0:3])
 plt.grid(False)
 plt.title("start")
 
 plt.subplot(1, 2, 2)
-plt.imshow(model.image_ref.cpu().numpy().squeeze()[..., 3])
+plt.imshow(model.image_ref.cpu().numpy().squeeze()[..., 0:3])
 plt.grid(False)
 plt.title("Reference silhouette")
 
@@ -290,7 +306,7 @@ loop = tqdm(range(200))
 for i in loop:
     optimizer.zero_grad()
     _, render_image = model()
-    # sketch = model.photo2sketch(render_image)
+    sketch = model.photo2sketch(render_image)
     loss = model.rec_loss(render_image)
     print(loss)
     loss.backward()
@@ -298,7 +314,7 @@ for i in loop:
     
     loop.set_description('Optimizing (loss %.4f)' % loss.data)
     
-    if loss.item() < 200:
+    if loss.item() < 5:
         break
     
     # Save outputs to create a GIF. 
