@@ -11,6 +11,7 @@ from networks import ResnetGenerator
 import torchvision.transforms as transforms
 import cv2
 from PIL import Image
+from clip_loss import CLIPLoss
 
 # io utils
 from pytorch3d.io import load_obj
@@ -71,26 +72,9 @@ swint_model = torch.load(swint_model_path)
 
 
 
-
-
-
-
-
-
 # Load the obj and ignore the textures and materials.
 verts, faces_idx, _ = load_obj(scene_json_pt)
 faces = faces_idx.verts_idx
-
-
-
-
-
-
-
-
-
-
-
 
 # Initialize each vertex to be white in color.
 verts_rgb = torch.ones_like(verts)[None]  # (1, V, 3)
@@ -147,9 +131,6 @@ phong_renderer = MeshRenderer(
     shader = HardPhongShader(device=device, cameras=cameras, lights=lights)
 )
 
-
-
-
 # Select the viewpoint using spherical angles  
 distance = 20   # distance from camera to the object
 elevation = 50.0   # angle of elevation in degrees
@@ -166,35 +147,27 @@ R, T = look_at_view_transform(eye=eye,at = at, device=device)
 # Render the teapot providing the values of R and T. 
 silhouette = silhouette_renderer(meshes_world=teapot_mesh, R=R, T=T)
 image_ref = phong_renderer(meshes_world=teapot_mesh, R=R, T=T)
-sketch_ref = cv2.imread(sketch_pt)
-sketch_ref = cv2.resize(sketch_ref,(224,224))
-print(sketch_ref.shape)
+transform = transforms.Compose([
+            transforms.Resize((224, 224)),  # 将图像大小调整为 224x224
+              # 将 PIL.Image 转换为 torch.Tensor
+            # 可以添加其他转换操作，例如 Normalize
+        ])
 
 
+sketch_ref = Image.open(sketch_pt)
+
+sketch_ref = transform(sketch_ref)
 
 
 
 
 silhouette = silhouette.cpu().numpy()
-image_ref = image_ref.cpu().numpy()
-
-
-print('here')
-print(image_ref)
-
-plt.figure(figsize=(10, 10))
-plt.subplot(1, 2, 1)
-plt.imshow(silhouette.squeeze()[...,3])  # only plot the alpha channel of the RGBA image
-plt.grid(False)
-plt.subplot(1, 2, 2)
-plt.imshow(sketch_ref.squeeze())
-plt.grid(False)
-plt.show()
 
 
 
 
-class Model(nn.Module):
+
+class DiffModel(nn.Module):
     def __init__(self, meshes, renderer, image_ref,encoder, p2s):
         super().__init__()
         self.meshes = meshes
@@ -203,13 +176,11 @@ class Model(nn.Module):
         self.encoder = encoder
         self.p2s = p2s
         # Get the silhouette of the reference RGB image by finding all non-white pixel values. 
-        image_ref = torch.from_numpy(image_ref.astype(np.float32))
-        print('image_ref shape: ', image_ref.shape)
         self.register_buffer('image_ref', image_ref)
         
         # Create an optimizable parameter for the x, y, z position of the camera. 
         self.camera_position = nn.Parameter(
-            torch.from_numpy(np.array([[0, 2, 4]], dtype=np.float32)).to(meshes.device))
+            torch.from_numpy(np.array([[0, 5, 4]], dtype=np.float32)).to(meshes.device))
         
         self.at = nn.Parameter(
             torch.from_numpy(np.array([[-1.5,0,0]], dtype= np.float32)).to(meshes.device)
@@ -219,103 +190,118 @@ class Model(nn.Module):
             torch.from_numpy(np.array([[0,-1,0]], dtype= np.float32)).to(meshes.device)
         )
 
+
+
     def forward(self):
         
         # Render the image using the updated camera position. Based on the new position of the 
         # camera we calculate the rotation and translation matrices
         # self.direction = self.direction / torch.norm(self.direction)
-        R, T = look_at_view_transform(eye=self.camera_position, at= self.at, device=self.device)
-
-        # R = look_at_rotation(self.camera_position[None, :], device=self.device)  # (1, 3, 3)
-        # T = -torch.bmm(R.transpose(1, 2), self.camera_position[None, :, None])[:, :, 0]   # (1, 3)
+        self.R, self.T = look_at_view_transform(eye=self.camera_position, at= self.at, device=self.device)
         
-
-
-        image = self.renderer(meshes_world=self.meshes.clone(), R=R, T=T)
+        image = self.renderer(meshes_world=self.meshes.clone(), R=self.R, T=self.T)
         
-        # Calculate the silhouette loss
-        loss = torch.sum((image[..., 0:3] - self.image_ref[..., 0:3]) ** 2)
-        return loss, image
-    
-    def rec_loss(self, image):
-        l2_loss = 1/(image.shape[0]* image.shape[1])*torch.sum((image[..., 0:3] - self.image_ref[..., 0:3]) ** 2)
-        # with torch.no_grad():
-        #     im_r = self.image_ref.permute(0,3,1,2)
-        #     im = self.image_ref.permute(0,3,1,2)
-        #     input_feature = self.encoder.forward_features(im_r)
-        #     now_feature = self.encoder.forward_features(im)
-        # f_loss = torch.sum((input_feature-now_feature)**2)
-        return l2_loss
+        return image
     
 
     def photo2sketch(self, render_image):
         render_image = render_image[...,0:3]
-        # plt.figure(figsize=(10,10))
-        # plt.imshow(render_image.detach().squeeze().cpu().numpy())
-        # plt.show()
         render_image = torch.permute(render_image,(0,3,1,2))
-        # cv2.imwrite('example1.png', render_image.detach().squeeze().cpu().numpy())
-        print("render image shape:",render_image.shape)
         render_image = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))(render_image)
         
-        # cv2.imshow('test', render_image.detach().squeeze().cpu().numpy())
-        # cv2.waitKey(0)
-       
-            
-        render_sketch = self.p2s(render_image)
-        # print(render_sketch.shape)
-        plt.figure(figsize=(10,10))
-        im = render_sketch.detach().squeeze().cpu().numpy()
-        plt.imshow(im)
-        plt.show()
-        
-        return render_sketch
+        render_sketch = self.p2s(render_image) # B, C, H, W     C = 1
+        channel1 = render_sketch
+        channel2 = render_sketch.clone()
+        channel3 = render_sketch.clone()
+        rgb_output = torch.cat((channel1, channel2, channel3), dim = 1)
+        return rgb_output
         
 
 
 
     # We will save images periodically and compose them into a GIF.
 filename_output = "./teapot_optimization_demo.gif"
-writer = imageio.get_writer(filename_output, mode='I', duration=0.3)
+filename_sketch_output = './test_sketch.gif'
+writer = imageio.get_writer(filename_output, mode='I', duration=1)
+sketch_writer = imageio.get_writer(filename_sketch_output, mode='I',duration=1)
 
 # Initialize a model using the renderer, mesh and reference image
-model = Model(meshes=teapot_mesh, renderer=phong_renderer, image_ref=image_ref,encoder=swint_model,p2s=photo2sketch_model).to(device)
+model = DiffModel(meshes=teapot_mesh, renderer=phong_renderer, image_ref=image_ref,encoder=swint_model,p2s=photo2sketch_model).to(device)
+
+with torch.no_grad():
+    sketch_ref = model.photo2sketch(image_ref)
+    
+
 
 # Create an optimizer. Here we are using Adam and we pass in the parameters of the model
-optimizer = torch.optim.Adam(model.parameters(), lr=0.05)
+optimizer = torch.optim.Adam([model.camera_position,model.at], lr=0.1)
 
 
 
 plt.figure(figsize=(10, 10))
 
-_, image_init = model()
+image_init = model()
+print('image_init:',image_init.shape)
 plt.subplot(1, 2, 1)
-plt.imshow(image_init.detach().squeeze().cpu().numpy()[..., 0:3])
+plt.imshow(image_init.detach().squeeze().cpu().numpy())
 plt.grid(False)
 plt.title("start")
 
+
+
+sketch_test = sketch_ref.clone().permute(0,2,3,1)
 plt.subplot(1, 2, 2)
-plt.imshow(model.image_ref.cpu().numpy().squeeze()[..., 0:3])
+plt.imshow(sketch_test.cpu().numpy().squeeze())
 plt.grid(False)
 plt.title("Reference silhouette")
-
 plt.show()
 
+clip_loss_func = CLIPLoss()
+best_loss, best_image = torch.Tensor([1000]).to(device), 0
 
-loop = tqdm(range(200))
+
+loop = tqdm(range(50))
 for i in loop:
     optimizer.zero_grad()
-    _, render_image = model()
-    sketch = model.photo2sketch(render_image)
-    loss = model.rec_loss(render_image)
+    # print(model.camera_position)
+
+    # param_values_before = {}
+    # for name, param in model.named_parameters():
+    #     param_values_before[name] = param.clone().detach()
+    # for name, param in model.named_parameters():
+    #     print(name)
+    try:
+        image = model()
+    except:
+        
+        print('model.R:', model.R)
+        print('model.T:', model.T)
+        exit()
+    sketch = model.photo2sketch(image)
+    loss = clip_loss_func(sketch, sketch_ref)
     print(loss)
+    if loss < best_loss:
+        best_loss = loss
+        best_image = sketch.detach().cpu().squeeze().numpy()
+        
+
+
+
     loss.backward()
     optimizer.step()
-    
+    # param_values_after = {}
+    # for name, param in model.named_parameters():
+    #     param_values_after[name] = param.clone().detach()
+
+    # # 比较更新前后的参数值，查看哪些参数被更新
+    # for name in param_values_before.keys():
+    #     if not torch.equal(param_values_before[name], param_values_after[name]):
+    #         print(f"参数 {name} 在本次Adam更新中被更新。")
+        
     loop.set_description('Optimizing (loss %.4f)' % loss.data)
     
-    if loss.item() < 5:
-        break
+    # if loss.item() < 0.06:
+    #     break
     
     # Save outputs to create a GIF. 
     if i % 10 == 0:
@@ -325,13 +311,25 @@ for i in loop:
         R, T = look_at_view_transform(eye=model.camera_position, at= model.at, device=model.device)
 
         image = phong_renderer(meshes_world=model.meshes.clone(), R=R, T=T)
+
+        write_sketch = model.photo2sketch(image).detach().squeeze().cpu().numpy()
+        write_sketch = img_as_ubyte(write_sketch)
+        sketch_writer.append_data(write_sketch)
+
         image = image[0, ..., :3].detach().squeeze().cpu().numpy()
+        
         image = img_as_ubyte(image)
         writer.append_data(image)
         
-        plt.figure()
-        plt.imshow(image[..., :3])
-        plt.title("iter: %d, loss: %0.2f" % (i, loss.data))
-        plt.axis("off")
-    
+        # plt.figure()
+        # plt.imshow(image[..., :3])
+        # plt.title("iter: %d, loss: %0.2f" % (i, loss.data))
+        # plt.axis("off")
+best_image = best_image.transpose((1,2,0))
+best_image = img_as_ubyte(best_image)
+print(best_image.shape)
+cv2.imwrite('./test_best_sketch.jpg',best_image)
+
+
 writer.close()
+sketch_writer.close()
