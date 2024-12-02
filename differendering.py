@@ -189,7 +189,39 @@ class DiffModel(nn.Module):
         self.direction = nn.Parameter(
             torch.from_numpy(np.array([[0,-1,0]], dtype= np.float32)).to(meshes.device)
         )
+        
 
+        self.theta_x = nn.Parameter(
+            torch.Tensor([0]).to(meshes.device)
+        )
+        self.theta_y = nn.Parameter(
+            torch.Tensor([0]).to(meshes.device)
+        )
+        self.theta_z = nn.Parameter(
+            torch.Tensor([0]).to(meshes.device)
+        )
+
+    def get_rotate_matrix(self):
+        self.T = self.camera_position
+        Rx = np.array([
+        [1, 0, 0],
+        [0, np.cos(self.theta_x), -np.sin(self.theta_x)],
+        [0, np.sin(self.theta_x), np.cos(self.theta_x)]
+    ])
+    # 绕y轴旋转的旋转矩阵
+        Ry = np.array([
+        [np.cos(self.theta_y), 0, np.sin(self.theta_y)],
+        [0, 1, 0],
+        [-np.sin(self.theta_y), 0, np.cos(self.theta_y)]
+    ])
+    # 绕z轴旋转的旋转矩阵
+        Rz = np.array([
+        [np.cos(self.theta_z), -np.sin(self.theta_z), 0],
+        [np.sin(self.theta_z), np.cos(self.theta_z), 0],
+        [0, 0, 1]
+    ])
+    # 按照 ZYX 的顺序计算总的旋转矩阵
+        return Rz @ Ry @ Rx
 
 
     def forward(self):
