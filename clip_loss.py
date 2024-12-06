@@ -5,6 +5,66 @@ import CLIP_.clip as clip
 from PIL import Image
 
 
+
+class LossFunc(nn.Module):
+    def __init__(self, args = None):
+        super(LossFunc, self).__init__()
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.losses_to_apply = self.get_losses_to_apply()
+        self.train_with_clip = args.train_with_clip
+        self.clip_weight = args.clip_weight
+        self.start_clip = args.start_clip
+
+        self.clip_conv_loss = args.clip_conv_loss
+        self.clip_fc_loss_weight = args.clip_fc_loss_weight
+        self.clip_text_guide = args.clip_text_guide
+        self.vae_loss = args.vae_loss
+
+        self.loss_mapper = {
+            'clip':CLIPLoss(args),
+            "clip_conv_loss": CLIPConvLoss(args)
+        }
+
+    def get_losses_to_apply(self):
+        losses_to_apply = []
+        if self.train_with_clip and self.start_clip == 0:
+            losses_to_apply.append("clip")
+        if self.clip_conv_loss:
+            losses_to_apply.append("clip_conv_loss")
+        if self.clip_text_guide:
+            losses_to_apply.append("clip_text")
+        if self.vae_loss:
+            losses_to_apply.append('vae')
+        return losses_to_apply
+    def forward(self, sketches, targets,  mode="train"):
+
+        losses_dict = dict.fromkeys(
+            self.losses_to_apply, torch.tensor([0.0]).to(self.args.device))
+        loss_coeffs = dict.fromkeys(self.losses_to_apply, 1.0)
+        loss_coeffs["clip"] = self.clip_weight
+        loss_coeffs["clip_text"] = self.clip_text_guide
+
+        for loss_name in self.losses_to_apply:
+            if loss_name in ["clip_conv_loss"]:
+                conv_loss = self.loss_mapper[loss_name](
+                    sketches, targets, mode)
+                for layer in conv_loss.keys():
+                    losses_dict[layer] = conv_loss[layer]
+            elif loss_name == "l2":
+                losses_dict[loss_name] = self.loss_mapper[loss_name](
+                    sketches, targets).mean()
+            else:
+                losses_dict[loss_name] = self.loss_mapper[loss_name](
+                    sketches, targets, mode).mean()
+            # loss = loss + self.loss_mapper[loss_name](sketches, targets).mean() * loss_coeffs[loss_name]
+
+        for key in self.losses_to_apply:
+            # loss = loss + losses_dict[key] * loss_coeffs[key]
+            losses_dict[key] = losses_dict[key] * loss_coeffs[key]
+        # print(losses_dict)
+        return losses_dict
+
+
 class CLIPLoss(nn.Module):
     def __init__(self, args = None):
         super(CLIPLoss, self).__init__()

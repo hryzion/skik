@@ -16,3 +16,37 @@ beta_pos = 10
 
 theta_scale = 40
 pos_scale = 2
+
+
+import argparse
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--percep_loss", type=str, default="none",
+                        help="the type of perceptual loss to be used (L2/LPIPS/none)")
+    parser.add_argument("--perceptual_weight", type=float, default=0,
+                        help="weight the perceptual loss")
+    parser.add_argument("--train_with_clip", type=int, default=0)
+    parser.add_argument("--clip_weight", type=float, default=0)
+    parser.add_argument("--start_clip", type=int, default=0)
+    parser.add_argument("--num_aug_clip", type=int, default=4)
+    parser.add_argument("--include_target_in_aug", type=int, default=0)
+    parser.add_argument("--augment_both", type=int, default=1,
+                        help="if you want to apply the affine augmentation to both the sketch and image")
+    parser.add_argument("--augemntations", type=str, default="affine",
+                        help="can be any combination of: 'affine_noise_eraserchunks_eraser_press'")
+    parser.add_argument("--noise_thresh", type=float, default=0.5)
+    parser.add_argument("--aug_scale_min", type=float, default=0.7)
+    parser.add_argument("--force_sparse", type=float, default=0,
+                        help="if True, use L1 regularization on stroke's opacity to encourage small number of strokes")
+    parser.add_argument("--clip_conv_loss", type=float, default=1)
+    parser.add_argument("--clip_conv_loss_type", type=str, default="L2")
+    parser.add_argument("--clip_conv_layer_weights",
+                        type=str, default="0,0,1.0,1.0,0")
+    parser.add_argument("--clip_model_name", type=str, default="RN101")
+    parser.add_argument("--clip_fc_loss_weight", type=float, default=0.1)
+    parser.add_argument("--clip_text_guide", type=float, default=0)
+    parser.add_argument("--text_target", type=str, default="none")
+
+    

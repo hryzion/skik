@@ -12,6 +12,7 @@ import torchvision.transforms as transforms
 import cv2
 from PIL import Image
 from clip_loss import CLIPLoss
+import config
 
 # io utils
 from pytorch3d.io import load_obj
@@ -180,10 +181,10 @@ class DiffModel(nn.Module):
         
         # Create an optimizable parameter for the x, y, z position of the camera. 
         self.camera_position = nn.Parameter(
-            torch.from_numpy(np.array([[0, 5, 4]], dtype=np.float32)).to(meshes.device))
+            torch.from_numpy(np.array([[0, 1.5, 6]], dtype=np.float32)).to(meshes.device))
         
         self.at = nn.Parameter(
-            torch.from_numpy(np.array([[-1.5,0,0]], dtype= np.float32)).to(meshes.device)
+            torch.from_numpy(np.array([[0,1.5,5]], dtype= np.float32)).to(meshes.device)
         )
 
         self.direction = nn.Parameter(
@@ -195,33 +196,38 @@ class DiffModel(nn.Module):
             torch.Tensor([0]).to(meshes.device)
         )
         self.theta_y = nn.Parameter(
-            torch.Tensor([0]).to(meshes.device)
+            torch.Tensor([torch.pi]).to(meshes.device)
         )
         self.theta_z = nn.Parameter(
             torch.Tensor([0]).to(meshes.device)
         )
 
     def get_rotate_matrix(self):
-        self.T = self.camera_position
-        Rx = np.array([
+        
+        Rx = torch.Tensor([
         [1, 0, 0],
-        [0, np.cos(self.theta_x), -np.sin(self.theta_x)],
-        [0, np.sin(self.theta_x), np.cos(self.theta_x)]
+        [0, torch.cos(self.theta_x), -torch.sin(self.theta_x)],
+        [0, torch.sin(self.theta_x), torch.cos(self.theta_x)]
     ])
     # 绕y轴旋转的旋转矩阵
-        Ry = np.array([
-        [np.cos(self.theta_y), 0, np.sin(self.theta_y)],
+        Ry = torch.Tensor([
+        [torch.cos(self.theta_y), 0, torch.sin(self.theta_y)],
         [0, 1, 0],
-        [-np.sin(self.theta_y), 0, np.cos(self.theta_y)]
+        [-torch.sin(self.theta_y), 0, torch.cos(self.theta_y)]
     ])
     # 绕z轴旋转的旋转矩阵
-        Rz = np.array([
-        [np.cos(self.theta_z), -np.sin(self.theta_z), 0],
-        [np.sin(self.theta_z), np.cos(self.theta_z), 0],
+        Rz = torch.Tensor([
+        [torch.cos(self.theta_z), -torch.sin(self.theta_z), 0],
+        [torch.sin(self.theta_z), torch.cos(self.theta_z), 0],
         [0, 0, 1]
     ])
     # 按照 ZYX 的顺序计算总的旋转矩阵
-        return Rz @ Ry @ Rx
+        R = Rz @ Ry @ Rx
+        
+        R = R.to(self.device).unsqueeze(0)
+        T = -torch.bmm(R.transpose(1, 2), self.camera_position[:, :, None])[:, :, 0]
+
+        return R, T
 
 
     def forward(self):
@@ -229,7 +235,14 @@ class DiffModel(nn.Module):
         # Render the image using the updated camera position. Based on the new position of the 
         # camera we calculate the rotation and translation matrices
         # self.direction = self.direction / torch.norm(self.direction)
-        self.R, self.T = look_at_view_transform(eye=self.camera_position, at= self.at, device=self.device)
+        
+        # self.R, self.T = look_at_view_transform(eye=self.camera_position, at = self.at,device=self.device)
+        # print(self.R,self.T)
+        print(self.camera_position)
+        self.R, self.T = self.get_rotate_matrix()
+        # print(self.R,self.T)
+        self.R = self.R.to(self.device)
+        self.T = self.T.to(self.device)
         
         image = self.renderer(meshes_world=self.meshes.clone(), R=self.R, T=self.T)
         
@@ -266,7 +279,7 @@ with torch.no_grad():
 
 
 # Create an optimizer. Here we are using Adam and we pass in the parameters of the model
-optimizer = torch.optim.Adam([model.camera_position,model.at], lr=0.1)
+optimizer = torch.optim.Adam([model.theta_x,model.theta_y,model.theta_z, model.camera_position], lr=0.05)
 
 
 
@@ -288,7 +301,13 @@ plt.grid(False)
 plt.title("Reference silhouette")
 plt.show()
 
-clip_loss_func = CLIPLoss()
+
+
+
+args = config.parse_arguments()
+
+
+clip_loss_func = CLIPLoss(args)
 best_loss, best_image = torch.Tensor([1000]).to(device), 0
 
 
