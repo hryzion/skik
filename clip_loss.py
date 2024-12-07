@@ -3,14 +3,13 @@ import torch.nn as nn
 import collections
 import CLIP_.clip as clip
 from PIL import Image
-
+from torchvision import transforms
 
 
 class LossFunc(nn.Module):
     def __init__(self, args = None):
         super(LossFunc, self).__init__()
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.losses_to_apply = self.get_losses_to_apply()
         self.train_with_clip = args.train_with_clip
         self.clip_weight = args.clip_weight
         self.start_clip = args.start_clip
@@ -20,6 +19,9 @@ class LossFunc(nn.Module):
         self.clip_text_guide = args.clip_text_guide
         self.vae_loss = args.vae_loss
 
+        self.args = args
+        self.losses_to_apply = self.get_losses_to_apply()
+        print(self.losses_to_apply)
         self.loss_mapper = {
             'clip':CLIPLoss(args),
             "clip_conv_loss": CLIPConvLoss(args)
@@ -36,6 +38,7 @@ class LossFunc(nn.Module):
         if self.vae_loss:
             losses_to_apply.append('vae')
         return losses_to_apply
+    
     def forward(self, sketches, targets,  mode="train"):
 
         losses_dict = dict.fromkeys(
@@ -106,7 +109,7 @@ class CLIPFeatureMap(nn.Module):
 
     def forward(self,x):
         self.featuremaps = collections.OrderedDict()
-        fc_features = self.clip_model.encode_image(x).float()
+        fc_features = self.clip.encode_image(x).float()
         featuremaps = [self.featuremaps[k] for k in range(12)]
 
         return fc_features, featuremaps

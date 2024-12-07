@@ -11,7 +11,7 @@ from networks import ResnetGenerator
 import torchvision.transforms as transforms
 import cv2
 from PIL import Image
-from clip_loss import CLIPLoss
+from clip_loss import LossFunc
 import config
 
 # io utils
@@ -65,8 +65,8 @@ photo2sketch_model = ResnetGenerator(
 )
 photo2sketch_model.load_state_dict(torch.load(photo2sketch_model_path))
 
-swint_model_path = './best.pth'
-swint_model = torch.load(swint_model_path)
+# swint_model_path = './best.pth'
+# swint_model = torch.load(swint_model_path)
 
 # transfer scenejson to mesh
 # operate(scene_json_pt)
@@ -137,8 +137,8 @@ distance = 20   # distance from camera to the object
 elevation = 50.0   # angle of elevation in degrees
 azimuth = 0.0  # No rotation so the camera is positioned on the +Z axis. 
 
-eye = torch.Tensor([[0,2,4]])
-at = torch.Tensor([[-1.5,1,0]])
+eye = torch.Tensor([[0, 1.5, 6]])
+at = torch.Tensor([[0,1.5,5]])
 
 
 # Get the position of the camera based on the spherical angles
@@ -169,12 +169,12 @@ silhouette = silhouette.cpu().numpy()
 
 
 class DiffModel(nn.Module):
-    def __init__(self, meshes, renderer, image_ref,encoder, p2s):
+    def __init__(self, meshes, renderer, image_ref, p2s):
         super().__init__()
         self.meshes = meshes
         self.device = meshes.device
         self.renderer = renderer
-        self.encoder = encoder
+
         self.p2s = p2s
         # Get the silhouette of the reference RGB image by finding all non-white pixel values. 
         self.register_buffer('image_ref', image_ref)
@@ -271,7 +271,7 @@ writer = imageio.get_writer(filename_output, mode='I', duration=1)
 sketch_writer = imageio.get_writer(filename_sketch_output, mode='I',duration=1)
 
 # Initialize a model using the renderer, mesh and reference image
-model = DiffModel(meshes=teapot_mesh, renderer=phong_renderer, image_ref=image_ref,encoder=swint_model,p2s=photo2sketch_model).to(device)
+model = DiffModel(meshes=teapot_mesh, renderer=phong_renderer, image_ref=image_ref,p2s=photo2sketch_model).to(device)
 
 with torch.no_grad():
     sketch_ref = model.photo2sketch(image_ref)
@@ -279,8 +279,8 @@ with torch.no_grad():
 
 
 # Create an optimizer. Here we are using Adam and we pass in the parameters of the model
-optimizer = torch.optim.Adam([model.theta_x,model.theta_y,model.theta_z, model.camera_position], lr=0.05)
-
+optimizer_orient = torch.optim.Adam([model.theta_x,model.theta_y,model.theta_z], lr=0.05)
+optimizer_pose = torch.optim.Adam([model.camera_position],lr = 0.05)
 
 
 plt.figure(figsize=(10, 10))
@@ -307,13 +307,16 @@ plt.show()
 args = config.parse_arguments()
 
 
-clip_loss_func = CLIPLoss(args)
+clip_loss_func = LossFunc(args)
 best_loss, best_image = torch.Tensor([1000]).to(device), 0
 
 
 loop = tqdm(range(50))
+loss_record = []
+
 for i in loop:
-    optimizer.zero_grad()
+    optimizer_orient.zero_grad()
+    optimizer_pose.zero_grad()
     # print(model.camera_position)
 
     # param_values_before = {}
@@ -328,18 +331,28 @@ for i in loop:
         print('model.R:', model.R)
         print('model.T:', model.T)
         exit()
-    sketch = model.photo2sketch(image)
-    loss = clip_loss_func(sketch, sketch_ref)
+    image = image[...,0:3]
+    image = torch.permute(image,(0,3,1,2))
+    # sketch = model.photo2sketch(image)
+    
+    losses_dict = clip_loss_func(image, sketch_ref)
+    print(losses_dict)
+    loss = sum(list(losses_dict.values()))
     print(loss)
+    print()
+
+
+    loss_record.append(loss.detach().cpu())
     if loss < best_loss:
         best_loss = loss
-        best_image = sketch.detach().cpu().squeeze().numpy()
+        best_image = image.detach().cpu().squeeze().numpy()
         
 
 
 
     loss.backward()
-    optimizer.step()
+    optimizer_pose.step()
+    # optimizer_orient.step()
     # param_values_after = {}
     # for name, param in model.named_parameters():
     #     param_values_after[name] = param.clone().detach()
@@ -376,6 +389,16 @@ for i in loop:
         # plt.imshow(image[..., :3])
         # plt.title("iter: %d, loss: %0.2f" % (i, loss.data))
         # plt.axis("off")
+
+
+ep = [i for i in range(len(loss_record))]
+plt.plot(ep, loss_record)
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.title('Loss vs Epochs')
+plt.savefig('./loss.png')
+
+
 best_image = best_image.transpose((1,2,0))
 best_image = img_as_ubyte(best_image)
 print(best_image.shape)

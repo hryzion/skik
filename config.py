@@ -19,6 +19,7 @@ pos_scale = 2
 
 
 import argparse
+import torch
 
 
 def parse_arguments():
@@ -34,6 +35,7 @@ def parse_arguments():
     parser.add_argument("--include_target_in_aug", type=int, default=0)
     parser.add_argument("--augment_both", type=int, default=1,
                         help="if you want to apply the affine augmentation to both the sketch and image")
+    parser.add_argument("--vae_loss",type=int, default=0)
     parser.add_argument("--augemntations", type=str, default="affine",
                         help="can be any combination of: 'affine_noise_eraserchunks_eraser_press'")
     parser.add_argument("--noise_thresh", type=float, default=0.5)
@@ -44,9 +46,14 @@ def parse_arguments():
     parser.add_argument("--clip_conv_loss_type", type=str, default="L2")
     parser.add_argument("--clip_conv_layer_weights",
                         type=str, default="0,0,1.0,1.0,0")
-    parser.add_argument("--clip_model_name", type=str, default="RN101")
-    parser.add_argument("--clip_fc_loss_weight", type=float, default=0.1)
+    parser.add_argument("--clip_model_name", type=str, default="ViT-B/32")
+    parser.add_argument("--clip_fc_loss_weight", type=float, default=1)
     parser.add_argument("--clip_text_guide", type=float, default=0)
     parser.add_argument("--text_target", type=str, default="none")
+    args = parser.parse_args()
 
-    
+    args.clip_conv_layer_weights = [
+        float(item) for item in args.clip_conv_layer_weights.split(',')]
+    args.device = torch.device("cuda" if (
+            torch.cuda.is_available() and torch.cuda.device_count() > 0) else "cpu")
+    return args
