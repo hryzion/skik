@@ -26,6 +26,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--scene', type=str, default='rooms1')
+    parser.add_argument('--dataset', type=str, default='D:/zhx_workspace/3DPlatformDev/dataset/Levels2021')
 
 
     parser.add_argument('--exp',type=int,default=1)
