@@ -24,6 +24,11 @@ import torch
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
+
+    parser.add_argument('--scene', type=str, default='rooms1')
+
+
+    parser.add_argument('--exp',type=int,default=1)
     parser.add_argument("--percep_loss", type=str, default="none",
                         help="the type of perceptual loss to be used (L2/LPIPS/none)")
     parser.add_argument("--perceptual_weight", type=float, default=0,
@@ -46,7 +51,7 @@ def parse_arguments():
     parser.add_argument("--clip_conv_loss_type", type=str, default="L2")
     parser.add_argument("--clip_conv_layer_weights",
                         type=str, default="0,0,1.0,1.0,0")
-    parser.add_argument("--clip_model_name", type=str, default="ViT-B/32")
+    parser.add_argument("--clip_model_name", type=str, default="RN101")
     parser.add_argument("--clip_fc_loss_weight", type=float, default=1)
     parser.add_argument("--clip_text_guide", type=float, default=0)
     parser.add_argument("--text_target", type=str, default="none")

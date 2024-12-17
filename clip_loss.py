@@ -54,6 +54,7 @@ class LossFunc(nn.Module):
                 for layer in conv_loss.keys():
                     losses_dict[layer] = conv_loss[layer]
             elif loss_name == "l2":
+                print('here')
                 losses_dict[loss_name] = self.loss_mapper[loss_name](
                     sketches, targets).mean()
             else:
@@ -115,12 +116,14 @@ class CLIPFeatureMap(nn.Module):
         return fc_features, featuremaps
     
 def l2_layers(xs_conv_features, ys_conv_features, clip_model_name):
+    
+
     return [torch.square(x_conv - y_conv).mean() for x_conv, y_conv in
             zip(xs_conv_features, ys_conv_features)]
 
 
 def l1_layers(xs_conv_features, ys_conv_features, clip_model_name):
-    return [torch.abs(x_conv - y_conv).mean() for x_conv, y_conv in
+    return [torch.abs(x_conv - y_conv).sum() for x_conv, y_conv in
             zip(xs_conv_features, ys_conv_features)]
 
 
@@ -175,7 +178,8 @@ class CLIPConvLoss(torch.nn.Module):
         self.model.eval()
         self.target_transform = transforms.Compose([
             transforms.ToTensor(),
-        ])  # clip normalisation
+        ]) 
+         # clip normalisation
         self.normalize_transform = transforms.Compose([
             clip_preprocess.transforms[0],  # Resize
             clip_preprocess.transforms[1],  # CenterCrop

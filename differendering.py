@@ -137,8 +137,8 @@ distance = 20   # distance from camera to the object
 elevation = 50.0   # angle of elevation in degrees
 azimuth = 0.0  # No rotation so the camera is positioned on the +Z axis. 
 
-eye = torch.Tensor([[0, 1.5, 6]])
-at = torch.Tensor([[0,1.5,5]])
+eye = torch.Tensor([[0, 2, 4]])
+at = torch.Tensor([[0,0,0]])
 
 
 # Get the position of the camera based on the spherical angles
@@ -162,18 +162,16 @@ sketch_ref = transform(sketch_ref)
 
 
 
-silhouette = silhouette.cpu().numpy()
-
-
 
 
 
 class DiffModel(nn.Module):
-    def __init__(self, meshes, renderer, image_ref, p2s):
+    def __init__(self, meshes, renderer, image_ref, p2s, sil_render = None):
         super().__init__()
         self.meshes = meshes
         self.device = meshes.device
         self.renderer = renderer
+        self.sil_renderer = sil_render
 
         self.p2s = p2s
         # Get the silhouette of the reference RGB image by finding all non-white pixel values. 
@@ -181,16 +179,19 @@ class DiffModel(nn.Module):
         
         # Create an optimizable parameter for the x, y, z position of the camera. 
         self.camera_position = nn.Parameter(
-            torch.from_numpy(np.array([[0, 1.5, 6]], dtype=np.float32)).to(meshes.device))
+            torch.from_numpy(np.array([[0, 3, 6]], dtype=np.float32)).to(meshes.device))
         
         self.at = nn.Parameter(
-            torch.from_numpy(np.array([[0,1.5,5]], dtype= np.float32)).to(meshes.device)
+            torch.from_numpy(np.array([[0,1.5,0]], dtype= np.float32)).to(meshes.device)
         )
 
-        self.direction = nn.Parameter(
-            torch.from_numpy(np.array([[0,-1,0]], dtype= np.float32)).to(meshes.device)
-        )
-        
+        self.distance = nn.Parameter(
+            torch.from_numpy(np.array([[7]], dtype=np.float32)).to(meshes.device))
+
+        self.elevation = nn.Parameter(
+            torch.from_numpy(np.array([[20]], dtype=np.float32)).to(meshes.device))
+        self.azimuth = nn.Parameter(
+            torch.from_numpy(np.array([[10]], dtype=np.float32)).to(meshes.device))
 
         self.theta_x = nn.Parameter(
             torch.Tensor([0]).to(meshes.device)
@@ -225,6 +226,7 @@ class DiffModel(nn.Module):
         R = Rz @ Ry @ Rx
         
         R = R.to(self.device).unsqueeze(0)
+        # print(R.grad)
         T = -torch.bmm(R.transpose(1, 2), self.camera_position[:, :, None])[:, :, 0]
 
         return R, T
@@ -236,16 +238,22 @@ class DiffModel(nn.Module):
         # camera we calculate the rotation and translation matrices
         # self.direction = self.direction / torch.norm(self.direction)
         
-        # self.R, self.T = look_at_view_transform(eye=self.camera_position, at = self.at,device=self.device)
+        self.R, self.T = look_at_view_transform(self.distance,self.elevation,self.azimuth,device=self.device)
         # print(self.R,self.T)
-        print(self.camera_position)
-        self.R, self.T = self.get_rotate_matrix()
-        # print(self.R,self.T)
-        self.R = self.R.to(self.device)
-        self.T = self.T.to(self.device)
+        # print(self.camera_position)
+        # self.R, self.T = self.get_rotate_matrix()
+       
+        # self.R = self.R.to(self.device)
+        # self.T = self.T.to(self.device)
+        # print(self.camera_position.grad)
         
-        image = self.renderer(meshes_world=self.meshes.clone(), R=self.R, T=self.T)
+        # image = self.renderer(meshes_world=self.meshes.clone(), R=self.R, T=self.T)
+        image = self.sil_renderer(meshes_world = self.meshes.clone(), R = self.R, T = self.T)
         
+        return image
+    def phong_render(self):
+        self.R, self.T = look_at_view_transform(self.distance,self.elevation,self.azimuth,device=self.device)
+        image = self.renderer(meshes_world = self.meshes.clone(), R = self.R, T = self.T)
         return image
     
 
@@ -265,13 +273,19 @@ class DiffModel(nn.Module):
 
 
     # We will save images periodically and compose them into a GIF.
-filename_output = "./teapot_optimization_demo.gif"
-filename_sketch_output = './test_sketch.gif'
-writer = imageio.get_writer(filename_output, mode='I', duration=1)
-sketch_writer = imageio.get_writer(filename_sketch_output, mode='I',duration=1)
+args = config.parse_arguments()
+
+if not os.path.exists(f'./runs/exp{args.exp}'):
+    os.mkdir(f'./runs/exp{args.exp}')
+
+
+filename_output = f"./runs/exp{args.exp}/teapot_optimization_demo.gif"
+filename_sketch_output = f'./runs/exp{args.exp}/test_sketch.gif'
+writer = imageio.get_writer(filename_output, mode='I', duration=10)
+sketch_writer = imageio.get_writer(filename_sketch_output, mode='I',duration=10)
 
 # Initialize a model using the renderer, mesh and reference image
-model = DiffModel(meshes=teapot_mesh, renderer=phong_renderer, image_ref=image_ref,p2s=photo2sketch_model).to(device)
+model = DiffModel(meshes=teapot_mesh, renderer=phong_renderer, image_ref=image_ref,p2s=photo2sketch_model,sil_render=silhouette_renderer).to(device)
 
 with torch.no_grad():
     sketch_ref = model.photo2sketch(image_ref)
@@ -279,16 +293,16 @@ with torch.no_grad():
 
 
 # Create an optimizer. Here we are using Adam and we pass in the parameters of the model
-optimizer_orient = torch.optim.Adam([model.theta_x,model.theta_y,model.theta_z], lr=0.05)
-optimizer_pose = torch.optim.Adam([model.camera_position],lr = 0.05)
+# optimizer_orient = torch.optim.Adam([model.theta_x,model.theta_y,model.theta_z], lr=0.05)
+optimizer_pose = torch.optim.Adam(model.parameters(),lr = 0.1)
 
 
 plt.figure(figsize=(10, 10))
 
-image_init = model()
+image_init = model.phong_render()
 print('image_init:',image_init.shape)
 plt.subplot(1, 2, 1)
-plt.imshow(image_init.detach().squeeze().cpu().numpy())
+plt.imshow(image_init[...,0:3].detach().squeeze().cpu().numpy())
 plt.grid(False)
 plt.title("start")
 
@@ -298,54 +312,69 @@ sketch_test = sketch_ref.clone().permute(0,2,3,1)
 plt.subplot(1, 2, 2)
 plt.imshow(sketch_test.cpu().numpy().squeeze())
 plt.grid(False)
-plt.title("Reference silhouette")
+plt.title("reference sketch")
 plt.show()
 
 
 
 
-args = config.parse_arguments()
+
 
 
 clip_loss_func = LossFunc(args)
-best_loss, best_image = torch.Tensor([1000]).to(device), 0
+best_loss, best_image = torch.Tensor([100000]).to(device), 0
+best_view = []
 
 
-loop = tqdm(range(50))
+
 loss_record = []
+# image_ref = image_ref[...,0:3]
+# image_ref = torch.permute(image_ref,(0,3,1,2))
 
-for i in loop:
-    optimizer_orient.zero_grad()
+for i in tqdm(range(300)):
+    # optimizer_orient.zero_grad()
     optimizer_pose.zero_grad()
-    # print(model.camera_position)
 
-    # param_values_before = {}
-    # for name, param in model.named_parameters():
-    #     param_values_before[name] = param.clone().detach()
-    # for name, param in model.named_parameters():
-    #     print(name)
+    param_values_before = {}
+    for name, param in model.named_parameters():
+        param_values_before[name] = param.clone().detach()
+   
     try:
+
         image = model()
     except:
-        
-        print('model.R:', model.R)
-        print('model.T:', model.T)
-        exit()
-    image = image[...,0:3]
-    image = torch.permute(image,(0,3,1,2))
+        print(f'dis: {model.distance}')
+        print(f'ele: {model.elevation}')
+        print(f'amu: {model.azimuth}')
+    
+    image_c = image[...,0:3]
+
+    image_c = torch.permute(image_c,(0,3,1,2))
+    
+
     # sketch = model.photo2sketch(image)
     
-    losses_dict = clip_loss_func(image, sketch_ref)
-    print(losses_dict)
-    loss = sum(list(losses_dict.values()))
-    print(loss)
-    print()
+    loss = torch.sum((image[...,3]-silhouette[...,3])**2)
+    #print(model.theta_x.grad)
+    # print(model.camera_position.grad)
+    # print(model.azimuth.grad)
 
+    # losses_dict = clip_loss_func(image_c, image_ref)
 
+    # print(losses_dict)
+
+    # loss = sum(list(losses_dict.values()))
+
+    # loss = torch.sum((image_c-sketch_ref)**2)
+
+    print(loss,'\n')
+    if i >= 1 and loss - loss_record[-1] > 1000:
+        break
     loss_record.append(loss.detach().cpu())
     if loss < best_loss:
         best_loss = loss
-        best_image = image.detach().cpu().squeeze().numpy()
+        best_image = image_c.detach().cpu().squeeze().numpy()
+        best_view = (model.distance, model.azimuth, model.elevation)
         
 
 
@@ -353,34 +382,34 @@ for i in loop:
     loss.backward()
     optimizer_pose.step()
     # optimizer_orient.step()
-    # param_values_after = {}
-    # for name, param in model.named_parameters():
-    #     param_values_after[name] = param.clone().detach()
+    param_values_after = {}
+    for name, param in model.named_parameters():
+        param_values_after[name] = param.clone().detach()
 
-    # # 比较更新前后的参数值，查看哪些参数被更新
-    # for name in param_values_before.keys():
-    #     if not torch.equal(param_values_before[name], param_values_after[name]):
-    #         print(f"参数 {name} 在本次Adam更新中被更新。")
+    # 比较更新前后的参数值，查看哪些参数被更新
+    for name in param_values_before.keys():
+        if not torch.equal(param_values_before[name], param_values_after[name]):
+            print(f"参数 {name} 在本次Adam更新中被更新。")
         
-    loop.set_description('Optimizing (loss %.4f)' % loss.data)
+    # loop.set_description('Optimizing (loss %.4f)' % loss.data)
     
-    # if loss.item() < 0.06:
-    #     break
+    if loss.item() < 1500:
+        break
     
     # Save outputs to create a GIF. 
     if i % 10 == 0:
         # R = look_at_rotation(model.camera_position[None, :], device=model.device)
         # T = -torch.bmm(R.transpose(1, 2), model.camera_position[None, :, None])[:, :, 0]   # (1, 3)
         
-        R, T = look_at_view_transform(eye=model.camera_position, at= model.at, device=model.device)
 
-        image = phong_renderer(meshes_world=model.meshes.clone(), R=R, T=T)
+        image = model.renderer(meshes_world =model.meshes.clone(), R = model.R, T = model.T)
+
 
         write_sketch = model.photo2sketch(image).detach().squeeze().cpu().numpy()
         write_sketch = img_as_ubyte(write_sketch)
         sketch_writer.append_data(write_sketch)
 
-        image = image[0, ..., :3].detach().squeeze().cpu().numpy()
+        image = image[0, ..., 0:3].detach().squeeze().cpu().numpy()
         
         image = img_as_ubyte(image)
         writer.append_data(image)
@@ -396,12 +425,13 @@ plt.plot(ep, loss_record)
 plt.xlabel('Epochs')
 plt.ylabel('Loss')
 plt.title('Loss vs Epochs')
-plt.savefig('./loss.png')
+plt.savefig(f'./runs/exp{args.exp}/loss.png')
 
 
 best_image = best_image.transpose((1,2,0))
 best_image = img_as_ubyte(best_image)
-print(best_image.shape)
+print(best_view)
+
 cv2.imwrite('./test_best_sketch.jpg',best_image)
 
 
