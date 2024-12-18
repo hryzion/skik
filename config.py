@@ -25,8 +25,11 @@ import torch
 def parse_arguments():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--scene', type=str, default='rooms1')
-    parser.add_argument('--dataset', type=str, default='D:/zhx_workspace/3DPlatformDev/dataset/Levels2021')
+    parser.add_argument('--scene', type=str, default='000ecb5b-b877-4f9a-ab6f-90f385931658')
+    parser.add_argument('--dataset', type=str, default='./data/scenes')
+    parser.add_argument('--debug',type=int,default=0)
+    parser.add_argument('--sketch',type=str,default='./data/sketch/sketch3.jpg')
+    parser.add_argument('--eps',type=float,default=1e-1)
 
 
     parser.add_argument('--exp',type=int,default=1)
