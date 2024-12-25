@@ -128,6 +128,13 @@ def l1_layers(xs_conv_features, ys_conv_features, clip_model_name):
     return [torch.abs(x_conv - y_conv).sum() for x_conv, y_conv in
             zip(xs_conv_features, ys_conv_features)]
 
+def cos_layers(xs_conv_features, ys_conv_features, clip_model_name):
+    if "RN" in clip_model_name:
+        return [torch.square(x_conv, y_conv, dim=1).mean() for x_conv, y_conv in
+                zip(xs_conv_features, ys_conv_features)]
+    return [(1 - torch.cosine_similarity(x_conv, y_conv, dim=1)).mean() for x_conv, y_conv in
+            zip(xs_conv_features, ys_conv_features)]
+
 
 class CLIPConvLoss(torch.nn.Module):
     def __init__(self, args = None):
@@ -274,35 +281,76 @@ class CLIPConvLoss(torch.nn.Module):
 
 
 
-def cos_layers(xs_conv_features, ys_conv_features, clip_model_name):
-    if "RN" in clip_model_name:
-        return [torch.square(x_conv, y_conv, dim=1).mean() for x_conv, y_conv in
-                zip(xs_conv_features, ys_conv_features)]
-    return [(1 - torch.cosine_similarity(x_conv, y_conv, dim=1)).mean() for x_conv, y_conv in
-            zip(xs_conv_features, ys_conv_features)]
 
 if __name__ == '__main__':
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     # model, preprocess = clip.load("ViT-B/32", device=device,jit=False)
     import config
+    import os
+    import tqdm
     args = config.parse_arguments()
 
     loss_func = LossFunc(args)
 
     transform = transforms.ToTensor()
 
-    image = transform(Image.open('path1')).unsqueeze(0).to(device)
+    sketch_dir = rf"D:\zhx_workspace\sketch\PhotoSketch\Exp\PhotoSketch\SketchResults"
+    image_dir = rf'D:\zhx_workspace\3DScenePlatformDev\sceneviewer\results'
 
-    image2 = transform(Image.open('path2')).unsqueeze(0).to(device)
 
-    image3 = transform(Image.open('path2')).unsqueeze(0).to(device)
+    corr = 0
+    mist = 0
+    dif =0
+    for i,room in (enumerate(os.listdir(sketch_dir))):
+        for sketch in tqdm.tqdm(os.listdir(os.path.join(sketch_dir,room))):
+            # print(sketch)
+            if len(sketch.split('-')) < 2 or len(sketch.split('-')) > 4:
+                continue
+            ske_img = transform(Image.open(os.path.join(sketch_dir,room,sketch))).repeat(3,1,1).unsqueeze(0).to(device)
+            ren_img = transform(Image.open(os.path.join(image_dir,room,sketch))).unsqueeze(0).to(device)
+            loss_base_dict = loss_func(ske_img,ren_img)
+            loss_base = sum(list(loss_base_dict.values()))
+            for rendered in os.listdir(os.path.join(image_dir,room)):
+                if rendered == 'path':
+                    continue
+                if len(rendered.split('-')) < 2 or len(rendered.split('-')) > 4:
+                    continue
+                if os.path.splitext(rendered)[1] != '.png':
+                    continue
+                if sketch == rendered:
+                    continue
+                
+                image2=transform(Image.open(os.path.join(image_dir,room,rendered))).unsqueeze(0).to(device)
+                
+                loss_diff_dict=loss_func(ske_img,image2)
+                
+                # print(os.path.join(image_dir,room,rendered))
+                loss_diff = sum(list(loss_diff_dict.values()))
+                if loss_diff > loss_base:
+                    corr +=1 
+                else:
+                    mist+=1
+                
+                dif += loss_diff.detach().cpu() - loss_base.detach().cpu()
 
-    loss1 = loss_func(image,image2)
-    print(loss1)
+                
+        
+        print(corr,mist)
+        print(f"Accuracy: {corr/(corr+mist)}")
+        print(f'average diff: {dif/(corr+mist)}')
 
-    loss2 = loss_func(image,image3)
-    print(loss2)
+    # image = transform(Image.open(rf'D:\zhx_workspace\sketch\PhotoSketch\Exp\PhotoSketch\SketchResults\0b324ba6-32f3-4ea8-b3d7-710bf86014dc\room2-wellAlignedShifted-3.png')).repeat(3,1,1).unsqueeze(0).to(device)
+
+    # image2 = transform(Image.open(rf'D:\zhx_workspace\3DScenePlatformDev\sceneviewer\results\0b324ba6-32f3-4ea8-b3d7-710bf86014dc\room2-wellAlignedShifted-3.png')).unsqueeze(0).to(device)
+
+    # image3 = transform(Image.open(rf'D:\zhx_workspace\3DScenePlatformDev\sceneviewer\results\0b324ba6-32f3-4ea8-b3d7-710bf86014dc\room4-threeWall_R_thin-0.png')).unsqueeze(0).to(device)
+
+    # loss1 = loss_func(image,image2)
+    # print(loss1)
+
+    # loss2 = loss_func(image,image3)
+    # print(loss2)
 
 
 
