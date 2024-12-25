@@ -116,10 +116,12 @@ class CLIPFeatureMap(nn.Module):
         return fc_features, featuremaps
     
 def l2_layers(xs_conv_features, ys_conv_features, clip_model_name):
-    
+    ret = []
+    for x_conv, y_conv in zip(xs_conv_features, ys_conv_features):
+        w,h = x_conv.shape[1],x_conv.shape[2]
+        ret.append(w*h*torch.square(x_conv - y_conv).mean())
 
-    return [torch.square(x_conv - y_conv).mean() for x_conv, y_conv in
-            zip(xs_conv_features, ys_conv_features)]
+    return ret
 
 
 def l1_layers(xs_conv_features, ys_conv_features, clip_model_name):
@@ -282,25 +284,47 @@ def cos_layers(xs_conv_features, ys_conv_features, clip_model_name):
 if __name__ == '__main__':
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model, preprocess = clip.load("ViT-B/32", device=device,jit=False)
+    # model, preprocess = clip.load("ViT-B/32", device=device,jit=False)
+    import config
+    args = config.parse_arguments()
 
-    image = preprocess(Image.open("./data/sketch/sketch1.jpg")).unsqueeze(0).to(device)
-    image2 = preprocess(Image.open("./data/sketch/sketch3.jpg")).unsqueeze(0).to(device)
+    loss_func = LossFunc(args)
 
-    text = clip.tokenize(["a bedroom with a a bed in the center and chair around it, with a waredobe", "a living room with a dog", "a cat","a half camel",'a camel']).to(device)
+    transform = transforms.ToTensor()
 
-    print(image.shape)
+    image = transform(Image.open('path1')).unsqueeze(0).to(device)
 
-    model.eval()
-    image1_features = model.encode_image(image)
-    image2_features = model.encode_image(image2)
-    text_features = model.encode_text(text)
+    image2 = transform(Image.open('path2')).unsqueeze(0).to(device)
 
-    print(image1_features.shape)
-    print(f"cosine distance: {torch.cosine_similarity(image1_features, text_features)}")
+    image3 = transform(Image.open('path2')).unsqueeze(0).to(device)
 
-    logits_per_image, logits_per_text = model(image, text)
+    loss1 = loss_func(image,image2)
+    print(loss1)
 
-    probs = logits_per_image.softmax(dim=-1).detach().cpu().numpy()
+    loss2 = loss_func(image,image3)
+    print(loss2)
 
-    print("Label probs:", probs)  # prints: [[0.9927937  0.00421068 0.00299572]]
+
+
+
+
+    # image = preprocess(Image.open("./data/sketch/sketch1.jpg")).unsqueeze(0).to(device)
+    # image2 = preprocess(Image.open("./data/sketch/sketch3.jpg")).unsqueeze(0).to(device)
+
+    # text = clip.tokenize(["a bedroom with a a bed in the center and chair around it, with a waredobe", "a living room with a dog", "a cat","a half camel",'a camel']).to(device)
+
+    # print(image.shape)
+
+    # model.eval()
+    # image1_features = model.encode_image(image)
+    # image2_features = model.encode_image(image2)
+    # text_features = model.encode_text(text)
+
+    # print(image1_features.shape)
+    # print(f"cosine distance: {torch.cosine_similarity(image1_features, text_features)}")
+
+    # logits_per_image, logits_per_text = model(image, text)
+
+    # probs = logits_per_image.softmax(dim=-1).detach().cpu().numpy()
+
+    # print("Label probs:", probs)  # prints: [[0.9927937  0.00421068 0.00299572]]

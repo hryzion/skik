@@ -179,19 +179,19 @@ class DiffModel(nn.Module):
         
         # Create an optimizable parameter for the x, y, z position of the camera. 
         self.camera_position = nn.Parameter(
-            torch.from_numpy(np.array([[0, 3, 6]], dtype=np.float32)).to(meshes.device))
+            torch.from_numpy(np.array([[0, 2.1, 4.1]], dtype=np.float32)).to(meshes.device))
         
         self.at = nn.Parameter(
-            torch.from_numpy(np.array([[0,1.5,0]], dtype= np.float32)).to(meshes.device)
+            torch.from_numpy(np.array([[0,0,0]], dtype= np.float32)).to(meshes.device)
         )
 
         self.distance = nn.Parameter(
             torch.from_numpy(np.array([[7]], dtype=np.float32)).to(meshes.device))
 
         self.elevation = nn.Parameter(
-            torch.from_numpy(np.array([[20]], dtype=np.float32)).to(meshes.device))
-        self.azimuth = nn.Parameter(
             torch.from_numpy(np.array([[10]], dtype=np.float32)).to(meshes.device))
+        self.azimuth = nn.Parameter(
+            torch.from_numpy(np.array([[-10]], dtype=np.float32)).to(meshes.device))
 
         self.theta_x = nn.Parameter(
             torch.Tensor([0]).to(meshes.device)
@@ -238,7 +238,7 @@ class DiffModel(nn.Module):
         # camera we calculate the rotation and translation matrices
         # self.direction = self.direction / torch.norm(self.direction)
         
-        self.R, self.T = look_at_view_transform(self.distance,self.elevation,self.azimuth,device=self.device)
+        self.R, self.T = look_at_view_transform(eye=self.camera_position,at = self.at,device=self.device)
         # print(self.R,self.T)
         # print(self.camera_position)
         # self.R, self.T = self.get_rotate_matrix()
@@ -247,8 +247,8 @@ class DiffModel(nn.Module):
         # self.T = self.T.to(self.device)
         # print(self.camera_position.grad)
         
-        # image = self.renderer(meshes_world=self.meshes.clone(), R=self.R, T=self.T)
-        image = self.sil_renderer(meshes_world = self.meshes.clone(), R = self.R, T = self.T)
+        image = self.renderer(meshes_world=self.meshes.clone(), R=self.R, T=self.T)
+        # image = self.sil_renderer(meshes_world = self.meshes.clone(), R = self.R, T = self.T)
         
         return image
     def phong_render(self):
@@ -294,12 +294,12 @@ with torch.no_grad():
 
 # Create an optimizer. Here we are using Adam and we pass in the parameters of the model
 # optimizer_orient = torch.optim.Adam([model.theta_x,model.theta_y,model.theta_z], lr=0.05)
-optimizer_pose = torch.optim.Adam(model.parameters(),lr = 0.1)
+optimizer_pose = torch.optim.Adam([model.camera_position,model.at],lr = 0.05)
 
 
 plt.figure(figsize=(10, 10))
 
-image_init = model.phong_render()
+image_init = model()
 print('image_init:',image_init.shape)
 plt.subplot(1, 2, 1)
 plt.imshow(image_init[...,0:3].detach().squeeze().cpu().numpy())
@@ -313,6 +313,8 @@ plt.subplot(1, 2, 2)
 plt.imshow(sketch_test.cpu().numpy().squeeze())
 plt.grid(False)
 plt.title("reference sketch")
+print(sketch_test.shape)
+cv2.imwrite(f'./runs/exp{args.exp}/ref_sketch.jpg',sketch_test.cpu().numpy().squeeze()*256)
 plt.show()
 
 
@@ -352,29 +354,29 @@ for i in tqdm(range(300)):
     image_c = torch.permute(image_c,(0,3,1,2))
     
 
-    # sketch = model.photo2sketch(image)
+    sketch = model.photo2sketch(image)
     
-    loss = torch.sum((image[...,3]-silhouette[...,3])**2)
-    #print(model.theta_x.grad)
+    # loss = torch.sum((sketch-sketch_ref)**2)
+    # print(model.theta_x.grad)
     # print(model.camera_position.grad)
     # print(model.azimuth.grad)
 
-    # losses_dict = clip_loss_func(image_c, image_ref)
+    losses_dict = clip_loss_func(image_c, sketch_ref)
 
     # print(losses_dict)
 
-    # loss = sum(list(losses_dict.values()))
+    loss = sum(list(losses_dict.values()))
 
     # loss = torch.sum((image_c-sketch_ref)**2)
 
     print(loss,'\n')
-    if i >= 1 and loss - loss_record[-1] > 1000:
-        break
+    # if i >= 1 and loss - loss_record[-1] > 1000:
+    #     break
     loss_record.append(loss.detach().cpu())
     if loss < best_loss:
         best_loss = loss
         best_image = image_c.detach().cpu().squeeze().numpy()
-        best_view = (model.distance, model.azimuth, model.elevation)
+        best_view = (model.camera_position)
         
 
 
@@ -382,14 +384,14 @@ for i in tqdm(range(300)):
     loss.backward()
     optimizer_pose.step()
     # optimizer_orient.step()
-    param_values_after = {}
-    for name, param in model.named_parameters():
-        param_values_after[name] = param.clone().detach()
+    # param_values_after = {}
+    # for name, param in model.named_parameters():
+    #     param_values_after[name] = param.clone().detach()
 
     # 比较更新前后的参数值，查看哪些参数被更新
-    for name in param_values_before.keys():
-        if not torch.equal(param_values_before[name], param_values_after[name]):
-            print(f"参数 {name} 在本次Adam更新中被更新。")
+    # for name in param_values_before.keys():
+    #     if not torch.equal(param_values_before[name], param_values_after[name]):
+    #         print(f"参数 {name} 在本次Adam更新中被更新。")
         
     # loop.set_description('Optimizing (loss %.4f)' % loss.data)
     
