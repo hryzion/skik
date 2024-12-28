@@ -295,8 +295,8 @@ if __name__ == '__main__':
 
     transform = transforms.ToTensor()
 
-    sketch_dir = rf"D:\zhx_workspace\sketch\PhotoSketch\Exp\PhotoSketch\SketchResults"
-    image_dir = rf'D:\zhx_workspace\3DScenePlatformDev\sceneviewer\results'
+    sketch_dir = rf"./sketch_results"
+    image_dir = rf'./sample_results'
 
 
     corr = 0
@@ -304,19 +304,19 @@ if __name__ == '__main__':
     dif =0
     for i,room in (enumerate(os.listdir(sketch_dir))):
         for sketch in tqdm.tqdm(os.listdir(os.path.join(sketch_dir,room))):
-            # print(sketch)
-            if len(sketch.split('-')) < 2 or len(sketch.split('-')) > 4:
-                continue
-            ske_img = transform(Image.open(os.path.join(sketch_dir,room,sketch))).repeat(3,1,1).unsqueeze(0).to(device)
+            
+            # if len(sketch.split('-')) < 2 or len(sketch.split('-')) > 4:
+            #     continue
+            ske_img = transform(Image.open(os.path.join(sketch_dir,room,sketch))).unsqueeze(0).to(device)
             ren_img = transform(Image.open(os.path.join(image_dir,room,sketch))).unsqueeze(0).to(device)
             loss_base_dict = loss_func(ske_img,ren_img)
             loss_base = sum(list(loss_base_dict.values()))
             for rendered in os.listdir(os.path.join(image_dir,room)):
                 if rendered == 'path':
                     continue
-                if len(rendered.split('-')) < 2 or len(rendered.split('-')) > 4:
-                    continue
-                if os.path.splitext(rendered)[1] != '.png':
+                # if len(rendered.split('-')) < 2 or len(rendered.split('-')) > 4:
+                #     continue
+                if os.path.splitext(rendered)[1] != '.jpg':
                     continue
                 if sketch == rendered:
                     continue
