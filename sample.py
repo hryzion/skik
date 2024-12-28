@@ -14,21 +14,23 @@ from PIL import Image
 from clip_loss import LossFunc
 import config
 
+room_id = "00a4ff0c-ec69-4202-9420-cc8536ffffe0"
+
 # io utils
-from pytorch3d.io import load_obj,load_objs_as_meshes
+from pytorch3d.io import load_obj, load_objs_as_meshes
 
 # datastructures
 from pytorch3d.structures import Meshes,join_meshes_as_scene
 
 # 3D transformations functions
-from pytorch3d.transforms import Rotate, Translate, euler_angles_to_matrix
+from pytorch3d.transforms import Rotate, Translate,euler_angles_to_matrix
 
 # rendering components
 from pytorch3d.renderer import (
     FoVPerspectiveCameras, look_at_view_transform, look_at_rotation, 
     RasterizationSettings, MeshRenderer, MeshRasterizer, BlendParams,
     SoftSilhouetteShader, HardPhongShader, PointLights, TexturesVertex,
-    TexturesAtlas
+    SoftPhongShader
     
 )
 
@@ -40,40 +42,22 @@ if torch.cuda.is_available():
 else:
     device = torch.device("cpu")
 
-
-
-room_id = "000ecb5b-b877-4f9a-ab6f-90f385931658"
-
-
-    
-img_root_path = './data/sketch'
-img_name = 'sketch1.jpg'
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-sketch_pt = os.path.join(img_root_path,img_name)
-scene_json = []
-sketch = []
-
-photo2sketch_model_path = './latest_net_G.pth'
-photo2sketch_model = ResnetGenerator(
-    input_nc=3,
-    output_nc=1,
-    use_dropout=False,
-    n_blocks=9
-)
-photo2sketch_model.load_state_dict(torch.load(photo2sketch_model_path))
-
-
+# Set paths
 DATA_DIR =   "/mnt/e/dataset/scenes"
 
 OBJ_DIR = '/mnt/e/dataset/3DFront_p/object/'
 scene_filename = os.path.join(DATA_DIR, f"{room_id}.json")
 
+
+# Load obj file
+
+
 import json
 with open(scene_filename, 'r') as f:
     scene_json = json.load(f)
     f.close()
+
+
 
 all_meshes = []
 for room in scene_json['rooms']:
@@ -108,11 +92,30 @@ for room in scene_json['rooms']:
 
 scene = join_meshes_as_scene(all_meshes)
 
+
+
+    
+img_root_path = './data/sketch'
+img_name = 'sketch1.jpg'
+
+
+scene_json = []
+sketch = []
+
+photo2sketch_model_path = './latest_net_G.pth'
+photo2sketch_model = ResnetGenerator(
+    input_nc=3,
+    output_nc=1,
+    use_dropout=False,
+    n_blocks=9
+)
+photo2sketch_model.load_state_dict(torch.load(photo2sketch_model_path))
+
+
 # Initialize a perspective camera.
 cameras = FoVPerspectiveCameras(device=device)
 
 blend_params = BlendParams(sigma=1e-4, gamma=1e-4)
-
 raster_settings = RasterizationSettings(
     image_size=224, 
     blur_radius=np.log(1. / 1e-4 - 1.) * blend_params.sigma, 
@@ -131,7 +134,7 @@ silhouette_renderer = MeshRenderer(
 
 # We will also create a Phong renderer. This is simpler and only needs to render one face per pixel.
 raster_settings = RasterizationSettings(
-    image_size=256, 
+    image_size=512, 
     blur_radius=0.0, 
     faces_per_pixel=1, 
 )
@@ -142,7 +145,7 @@ phong_renderer = MeshRenderer(
         cameras=cameras, 
         raster_settings=raster_settings
     ),
-    shader = HardPhongShader(device=device, cameras=cameras, lights=lights)
+    shader = SoftPhongShader(device=device, cameras=cameras, lights=lights)
 )
 
 # Select the viewpoint using spherical angles  
@@ -150,8 +153,8 @@ distance = 20   # distance from camera to the object
 elevation = 50.0   # angle of elevation in degrees
 azimuth = 0.0  # No rotation so the camera is positioned on the +Z axis. 
 
-eye = torch.Tensor([[5.4498997, 1.4 ,3  ]])
-at = torch.Tensor([[2.0168998, 1.229513,  2.793385 ]])
+eye = torch.Tensor([[0, 2, 4]])
+at = torch.Tensor([[0,0,0]])
 
 
 # Get the position of the camera based on the spherical angles
@@ -168,11 +171,11 @@ transform = transforms.Compose([
         ])
 
 
-sketch_ref = Image.open(sketch_pt)
-sketch_ref = transform(sketch_ref)
+
+
 
 class DiffModel(nn.Module):
-    def __init__(self, meshes, renderer, image_ref, p2s, sil_render = None):
+    def __init__(self, meshes, renderer, image_ref, p2s, camera = None,at = None, sil_render = None):
         super().__init__()
         self.meshes = meshes
         self.device = meshes.device
@@ -184,31 +187,12 @@ class DiffModel(nn.Module):
         self.register_buffer('image_ref', image_ref)
         
         # Create an optimizable parameter for the x, y, z position of the camera. 
-        self.camera_position = nn.Parameter(
-            torch.from_numpy(np.array([[5.4498997 ,1.3 ,1.0902   ]], dtype=np.float32)).to(meshes.device))
+        self.camera_position =  torch.from_numpy(np.array([[0, 2.1, 4.1]], dtype=np.float32)).to(meshes.device)
         
-        self.at = nn.Parameter(
-            torch.from_numpy(np.array([[2.0168998, 1.229513,  2.793385 ]], dtype= np.float32)).to(meshes.device)
-        )
-
-        self.distance = nn.Parameter(
-            torch.from_numpy(np.array([[7]], dtype=np.float32)).to(meshes.device))
-
-        self.elevation = nn.Parameter(
-            torch.from_numpy(np.array([[10]], dtype=np.float32)).to(meshes.device))
-        self.azimuth = nn.Parameter(
-            torch.from_numpy(np.array([[-10]], dtype=np.float32)).to(meshes.device))
-
-        self.theta_x = nn.Parameter(
-            torch.Tensor([0]).to(meshes.device)
-        )
-        self.theta_y = nn.Parameter(
-            torch.Tensor([torch.pi]).to(meshes.device)
-        )
-        self.theta_z = nn.Parameter(
-            torch.Tensor([0]).to(meshes.device)
-        )
-
+        
+        self.at = torch.from_numpy(np.array([[0,0,0]], dtype= np.float32)).to(meshes.device)
+   
+        
     def get_rotate_matrix(self):
         
         Rx = torch.Tensor([
@@ -260,134 +244,70 @@ class DiffModel(nn.Module):
         channel3 = render_sketch.clone()
         rgb_output = torch.cat((channel1, channel2, channel3), dim = 1)
         return rgb_output
-        
-
-
-args = config.parse_arguments()
-
-if not os.path.exists(f'./runs/exp{args.exp}'):
-    os.mkdir(f'./runs/exp{args.exp}')
-
-
-filename_output = f"./runs/exp{args.exp}/teapot_optimization_demo.gif"
-filename_sketch_output = f'./runs/exp{args.exp}/test_sketch.gif'
-writer = imageio.get_writer(filename_output, mode='I', duration=10)
-sketch_writer = imageio.get_writer(filename_sketch_output, mode='I',duration=10)
-
-# Initialize a model using the renderer, mesh and reference image
-model = DiffModel(meshes=scene, renderer=phong_renderer, image_ref=image_ref,p2s=photo2sketch_model,sil_render=silhouette_renderer).to(device)
-
-with torch.no_grad():
-    sketch_ref = model.photo2sketch(image_ref)
+    
+    def set_camera_at(self,camera = None, at= None):
+        if camera.all() != None:
+            self.camera_position = torch.from_numpy(camera).unsqueeze(0).to(device)
+        if at.all() != None:
+            self.at =torch.from_numpy(at).unsqueeze(0).to(device)
     
 
-
-# Create an optimizer. Here we are using Adam and we pass in the parameters of the model
-# optimizer_orient = torch.optim.Adam([model.theta_x,model.theta_y,model.theta_z], lr=0.05)
-optimizer_pose = torch.optim.Adam([model.camera_position],lr = 0.05)
-# optimizer_at = torch.optim.Adam([model.at],l)
-
-
-
-plt.figure(figsize=(10, 10))
-
-image_init = model()
-print('image_init:',image_init.shape)
-plt.subplot(1, 2, 1)
-plt.imshow(image_init[...,0:3].detach().squeeze().cpu().numpy())
-plt.grid(False)
-plt.title("start")
-
-
-
-sketch_test = sketch_ref.clone().permute(0,2,3,1)
-plt.subplot(1, 2, 2)
-plt.imshow(sketch_test.cpu().numpy().squeeze())
-plt.grid(False)
-plt.title("reference sketch")
-print(sketch_test.shape)
-cv2.imwrite(f'./runs/exp{args.exp}/ref_sketch.jpg',sketch_test.cpu().numpy().squeeze()*256)
-plt.show()
-
-
-
-
-
-
-
-clip_loss_func = LossFunc(args)
-best_loss, best_image = torch.Tensor([1000000]).to(device), 0
-best_view = []
-
-
-
-loss_record = []
-# image_ref = image_ref[...,0:3]
-# image_ref = torch.permute(image_ref,(0,3,1,2))
-
-for i in tqdm(range(200)):
-    optimizer_pose.zero_grad()
-    # optimizer_at.zero_grad()
+if __name__ == '__main__':
+    import json
+    with open(f'/mnt/e/dataset/scenes/{room_id}.json','r') as f:
+        scene_json = json.load(f)
+    if not os.path.exists(f'./sketch_results/{room_id}/'):
+        os.makedirs(f'./sketch_results/{room_id}/')
+    if not os.path.exists(f'./sample_results/{room_id}/'):
+        os.makedirs(f'./sample_results/{room_id}/')
     
-    try:
-        image = model()
-    except:
-        print(model.at, model.camera_position)
-    image_c = image[...,0:3]
-    image_c = torch.permute(image_c,(0,3,1,2))
-    sketch = model.photo2sketch(image)
-    # losses_dict = clip_loss_func(image_c, sketch_ref)
-    # loss = sum(list(losses_dict.values()))
-    loss = torch.mean((sketch-sketch_ref)**2) * sketch.shape[3] * sketch.shape[2]
-
-    # loss = torch.sum((image_c-sketch_ref)**2)
-
-    print(loss,'\n')
-
-    loss_record.append(loss.detach().cpu())
-    if loss < best_loss:
-        best_loss = loss
-        best_image = image_c.detach().cpu().squeeze().numpy()
-        best_view = (model.camera_position)
+    model = DiffModel(meshes=scene, renderer=phong_renderer, image_ref=image_ref,p2s=photo2sketch_model,sil_render=silhouette_renderer).to(device)
+    for i,room in enumerate(scene_json['rooms']):
+        count = 0
+        for obj in room['objList']:
+            if obj['coarseSemantic'] == "Door" or obj['coarseSemantic']=="Window":
+                continue
+            count+=1
         
-    loss.backward()
-    optimizer_pose.step()
-    # optimizer_at.step()
-    if loss.item() < 1500:
-        break
-    
-    # Save outputs to create a GIF. 
-    if i % 10 == 0:
-        image = model.renderer(meshes_world =model.meshes.clone(), R = model.R, T = model.T)
-        write_sketch = model.photo2sketch(image).detach().squeeze().cpu().numpy()
-        write_sketch = img_as_ubyte(write_sketch)
-        sketch_writer.append_data(write_sketch)
+        if count == 0:
+            continue
+        else:
+            # sample
+            bbox = room['bbox']
+            box_ma = np.array(bbox['max'],dtype = np.float32)
+            box_mi = np.array(bbox['min'],dtype = np.float32)
 
-        image = image[0, ..., 0:3].detach().squeeze().cpu().numpy()
-        
-        image = img_as_ubyte(image)
-        writer.append_data(image)
-        
-        # plt.figure()
-        # plt.imshow(image[..., :3])
-        # plt.title("iter: %d, loss: %0.2f" % (i, loss.data))
-        # plt.axis("off")
+            center = (box_ma + box_mi) / 2
+            y = center[1]
+            box_ma[1] = y
+            box_mi[1] = y
+            eightpt = [
+                box_ma,
+                box_mi,
+                np.array([box_ma[0], y, box_mi[2]],dtype = np.float32),
+                np.array([box_mi[0], y, box_ma[2]],dtype = np.float32),
+                np.array([box_ma[0], y, center[2]],dtype = np.float32),
+                np.array([center[0], y, box_ma[2]],dtype = np.float32),
+                np.array([box_mi[0], y, center[2]],dtype = np.float32),
+                np.array([center[0], y, box_mi[2]],dtype = np.float32),
+            ]
+            print(eightpt)
+            print("center: ", center)
+            for j, camera in enumerate(eightpt):
+                print(camera)
+                model.set_camera_at(camera,center)
+                rast = model()
+
+                sketch = model.photo2sketch(rast)
+                sketch = sketch.detach().cpu().squeeze().numpy().transpose((1,2,0))
+                sketch *= 256
+
+                rast = rast[...,:3].detach().cpu().squeeze().numpy()
+                rast *= 256
+                cv2.imwrite(f'./sample_results/{room_id}/room{i}_camera{j}.jpg',rast)
+                cv2.imwrite(f'./sketch_results/{room_id}/room{i}_camera{j}.jpg',sketch)
+
+                
 
 
-ep = [i for i in range(len(loss_record))]
-plt.plot(ep, loss_record)
-plt.xlabel('Epochs')
-plt.ylabel('Loss')
-plt.title('Loss vs Epochs')
-plt.savefig(f'./runs/exp{args.exp}/loss.png')
 
-
-best_image = best_image.transpose((1,2,0))
-best_image = img_as_ubyte(best_image)
-print(best_view)
-
-cv2.imwrite(f'./runs/exp{args.exp}/test_best_sketch.jpg',cv2.cvtColor(best_image,cv2.COLOR_RGB2BGR))
-
-
-writer.close()
-sketch_writer.close()
