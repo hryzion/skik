@@ -233,6 +233,9 @@ class DiffModel(nn.Module):
         # image = self.sil_renderer(meshes_world = self.meshes.clone(), R = self.R, T = self.T
         return image
     
+    
+
+
     def phong_render(self):
         self.R, self.T = look_at_view_transform(self.distance,self.elevation,self.azimuth,device=self.device)
         image = self.renderer(meshes_world = self.meshes.clone(), R = self.R, T = self.T)
@@ -245,11 +248,7 @@ class DiffModel(nn.Module):
         render_image = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))(render_image)
         
         render_sketch = self.p2s(render_image) # B, C, H, W     C = 1
-        channel1 = render_sketch
-        channel2 = render_sketch.clone()
-        channel3 = render_sketch.clone()
-        rgb_output = torch.cat((channel1, channel2, channel3), dim = 1)
-        return rgb_output
+        return render_sketch
         
 
 
@@ -328,9 +327,7 @@ for i in tqdm(range(200)):
     sketch = model.photo2sketch(image)
     # losses_dict = clip_loss_func(image_c, sketch_ref)
     # loss = sum(list(losses_dict.values()))
-    loss = torch.mean((sketch-sketch_ref)**2) * sketch.shape[3] * sketch.shape[2]
-
-    # loss = torch.sum((image_c-sketch_ref)**2)
+    loss = torch.mean((sketch-sketch_ref)**2) * sketch.shape[3] * sketch.shape[2] 
 
     print(loss,'\n')
 

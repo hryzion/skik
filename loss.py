@@ -97,16 +97,32 @@ class SinkhornLoss(nn.Module):
         x =torch.linspace(0,1,self.res)
         y = torch.linspace(0,1,self.res)
         pts = torch.meshgrid(x, y)
-        self.pos = torch.cat([pts[1][...,None],pts[2][...,None]],dim=2)[None, ...]
+        self.pos = torch.cat([pts[1][...,None],pts[2][...,None]],dim=2)[None, ...] # 1, H, W, 2
         
+    def match_point(self, sketch_point_3d, target_point_3d):
+        _ , h, w, c = sketch_point_3d.shape
+        sketch_point_3d_match = sketch_point_3d.reshape(-1, h*w, c)
+        target_point_3d = target_point_3d.reshape(-1, h*w, c)
+        point_loss = self.loss(sketch_point_3d_match, target_point_3d) * self.res * self.res
+        [g] = torch.autograd.grad(torch.sum(point_loss),[sketch_point_3d_match])
+        return (sketch_point_3d - g.reshape(-1,h,w,c)).detach()
+
         
 
-    def forward(self, sketch, target):
+    def forward(self, sketch, target): # 1 ,1, H, W
+        if sketch.shape[1] == 1:
+            sketch = sketch.permute(0,2,3,1)
+        if target.shape[1] == 1:
+            target = target.permute(0,2,3,1)
         
+        sketch_3d = torch.cat([sketch,self.pos],dim = -1) # 1, H, W, 3
+        target_3d = torch.cat([target,self.pos],dim= -1)
+
+        match_3d = self.match_point(sketch_3d,target_3d)
+        dist = match_3d-sketch_3d
+        return torch.mean(dist ** 2)
+
         
-    
-
-
 
 class CLIPLoss(nn.Module):
     def __init__(self, args = None):
@@ -260,7 +276,8 @@ class CLIPConvLoss(torch.nn.Module):
         sketch: Torch Tensor [1, C, H, W]
         target: Torch Tensor [1, C, H, W]
         """
-        #         y = self.target_transform(target).to(self.args.device)
+        if sketch.shape[1] == 1:
+            sketch = sketch.repeat(1,3,1,1)
         conv_loss_dict = {}
         x = sketch.to(self.device)
         y = target.to(self.device)
