@@ -28,8 +28,6 @@ class Initializer:
 
 
 
-
-
     def furnitureCluster(self,room):
         objects = []
         objects_without_dw =[]

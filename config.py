@@ -32,7 +32,7 @@ def parse_arguments():
     parser.add_argument('--eps',type=float,default=1e-1)
 
     parser.add_argument('--sample',type=bool, default=0)
-
+    parser.add_argument('--res', type=int,default=256)
 
     parser.add_argument('--exp',type=int,default=1)
     parser.add_argument("--percep_loss", type=str, default="none",
@@ -62,6 +62,8 @@ def parse_arguments():
     parser.add_argument("--clip_fc_loss_weight", type=float, default=1)
     parser.add_argument("--clip_text_guide", type=float, default=0)
     parser.add_argument("--text_target", type=str, default="none")
+    parser.add_argument("--orb_loss",type=bool, default= False )
+    parser.add_argument('--sample_loss', type=bool, default=False)
     args = parser.parse_args()
 
     args.clip_conv_layer_weights = [

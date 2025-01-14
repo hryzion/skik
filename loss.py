@@ -4,6 +4,8 @@ import collections
 import CLIP_.clip as clip
 from PIL import Image
 from torchvision import transforms
+from geomloss import SamplesLoss
+import numpy as np
 
 
 class LossFunc(nn.Module):
@@ -24,7 +26,9 @@ class LossFunc(nn.Module):
         print(self.losses_to_apply)
         self.loss_mapper = {
             'clip':CLIPLoss(args),
-            "clip_conv_loss": CLIPConvLoss(args)
+            "clip_conv_loss": CLIPConvLoss(args),
+            'sample_loss' :SinkhornLoss(args),
+            'orb_loss':ORBLoss(args)
         }
 
     def get_losses_to_apply(self):
@@ -37,6 +41,10 @@ class LossFunc(nn.Module):
             losses_to_apply.append("clip_text")
         if self.vae_loss:
             losses_to_apply.append('vae')
+        if self.orb_loss:
+            losses_to_apply.append("orb_loss")
+        if self.sample_loss:
+            losses_to_apply.append("sample_loss")
         return losses_to_apply
     
     def forward(self, sketches, targets,  mode="train"):
@@ -54,7 +62,6 @@ class LossFunc(nn.Module):
                 for layer in conv_loss.keys():
                     losses_dict[layer] = conv_loss[layer]
             elif loss_name == "l2":
-                print('here')
                 losses_dict[loss_name] = self.loss_mapper[loss_name](
                     sketches, targets).mean()
             else:
@@ -67,6 +74,38 @@ class LossFunc(nn.Module):
             losses_dict[key] = losses_dict[key] * loss_coeffs[key]
         # print(losses_dict)
         return losses_dict
+    
+
+
+
+# TODO: Yirui to complete
+class ORBLoss(nn.Module):
+    def __init__(self, args = None):
+        super(ORBLoss, self).__init__()
+        self.device = args.device
+        
+        
+    def forward(self,sketch, target):
+        pass
+
+class SinkhornLoss(nn.Module):
+    def __init__(self, args = None):
+        super(SinkhornLoss, self).__init__()
+        self.device = args.device
+        self.loss = SamplesLoss("sinkhorn", blur=0.05)
+        self.res = args.res
+        x =torch.linspace(0,1,self.res)
+        y = torch.linspace(0,1,self.res)
+        pts = torch.meshgrid(x, y)
+        self.pos = torch.cat([pts[1][...,None],pts[2][...,None]],dim=2)[None, ...]
+        
+        
+
+    def forward(self, sketch, target):
+        
+        
+    
+
 
 
 class CLIPLoss(nn.Module):

@@ -7,3 +7,5 @@ run
 *.pth
 trash
 runs
+sketch_results
+sample_results

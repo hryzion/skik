@@ -11,7 +11,7 @@ from networks import ResnetGenerator
 import torchvision.transforms as transforms
 import cv2
 from PIL import Image
-from clip_loss import LossFunc
+from loss import LossFunc
 import config
 
 # io utils
@@ -28,10 +28,8 @@ from pytorch3d.renderer import (
     FoVPerspectiveCameras, look_at_view_transform, look_at_rotation, 
     RasterizationSettings, MeshRenderer, MeshRasterizer, BlendParams,
     SoftSilhouetteShader, HardPhongShader, PointLights, TexturesVertex,
-    TexturesAtlas
-    
+    TexturesAtlas  
 )
-
 
 # Set the cuda device 
 if torch.cuda.is_available():
@@ -43,18 +41,13 @@ else:
 
 
 room_id = "000ecb5b-b877-4f9a-ab6f-90f385931658"
-
-
-    
+  
 img_root_path = './data/sketch'
 img_name = 'sketch1.jpg'
-
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
 sketch_pt = os.path.join(img_root_path,img_name)
 scene_json = []
 sketch = []
-
 photo2sketch_model_path = './latest_net_G.pth'
 photo2sketch_model = ResnetGenerator(
     input_nc=3,
@@ -65,8 +58,7 @@ photo2sketch_model = ResnetGenerator(
 photo2sketch_model.load_state_dict(torch.load(photo2sketch_model_path))
 
 
-DATA_DIR =   "/mnt/e/dataset/scenes"
-
+DATA_DIR = "/mnt/e/dataset/scenes"
 OBJ_DIR = '/mnt/e/dataset/3DFront_p/object/'
 scene_filename = os.path.join(DATA_DIR, f"{room_id}.json")
 
@@ -103,9 +95,7 @@ for room in scene_json['rooms']:
             transform = T @ R @ S
 
             temp = mesh.transform_verts(transform)
-
             all_meshes.append(temp)
-
 scene = join_meshes_as_scene(all_meshes)
 
 # Initialize a perspective camera.
@@ -284,7 +274,7 @@ with torch.no_grad():
 
 # Create an optimizer. Here we are using Adam and we pass in the parameters of the model
 # optimizer_orient = torch.optim.Adam([model.theta_x,model.theta_y,model.theta_z], lr=0.05)
-optimizer_pose = torch.optim.Adam([model.camera_position],lr = 0.05)
+optimizer_pose = torch.optim.Adam([model.camera_position],lr = 0.02)
 # optimizer_at = torch.optim.Adam([model.at],l)
 
 
