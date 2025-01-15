@@ -62,7 +62,7 @@ def parse_arguments():
     parser.add_argument("--clip_fc_loss_weight", type=float, default=1)
     parser.add_argument("--clip_text_guide", type=float, default=0)
     parser.add_argument("--text_target", type=str, default="none")
-    parser.add_argument("--orb_loss",type=bool, default= False )
+    parser.add_argument("--orb_loss",type=bool, default= False)
     parser.add_argument('--sample_loss', type=bool, default=False)
     args = parser.parse_args()
 

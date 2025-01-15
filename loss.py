@@ -19,7 +19,10 @@ class LossFunc(nn.Module):
         self.clip_conv_loss = args.clip_conv_loss
         self.clip_fc_loss_weight = args.clip_fc_loss_weight
         self.clip_text_guide = args.clip_text_guide
+
         self.vae_loss = args.vae_loss
+        self.orb_loss = args.orb_loss
+        self.sample_loss = args.sample_loss
 
         self.args = args
         self.losses_to_apply = self.get_losses_to_apply()
@@ -64,6 +67,10 @@ class LossFunc(nn.Module):
             elif loss_name == "l2":
                 losses_dict[loss_name] = self.loss_mapper[loss_name](
                     sketches, targets).mean()
+            elif loss_name == "sample_loss":
+                losses_dict[loss_name] = self.loss_mapper[loss_name](
+                    sketches, targets
+                )
             else:
                 losses_dict[loss_name] = self.loss_mapper[loss_name](
                     sketches, targets, mode).mean()
@@ -115,10 +122,10 @@ class SinkhornLoss(nn.Module):
         if target.shape[1] == 1:
             target = target.permute(0,2,3,1)
         
-        sketch_3d = torch.cat([sketch,self.pos],dim = -1) # 1, H, W, 3
+        sketch_3d = torch.cat([sketch,self.pos],dim = -1) # 1, H, W, 3  grayXY
         target_3d = torch.cat([target,self.pos],dim= -1)
 
-        match_3d = self.match_point(sketch_3d,target_3d)
+        match_3d = self.match_point(sketch_3d,target_3d) # 1, h, w, 3
         dist = match_3d-sketch_3d
         return torch.mean(dist ** 2)
 
