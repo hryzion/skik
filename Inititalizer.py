@@ -4,10 +4,14 @@ import os
 import numpy as np
 from PIL import Image
 import config
+from config import DATA_DIR, OBJ_DIR
 
 import CLIP_.clip as clip
 import torch
 import tqdm
+from pytorch3d.transforms import Rotate, Translate, euler_angles_to_matrix
+from pytorch3d.structures import Meshes,join_meshes_as_scene
+from pytorch3d.io import load_obj,load_objs_as_meshes
 
 
 class Initializer:
@@ -24,7 +28,7 @@ class Initializer:
         self.sketch = self.preprocess(Image.open(args.sketch)).unsqueeze(0).to(args.device)
         self.eps = args.eps
         self.category_distance =np.loadtxt(rf"D:\zhx_workspace\SceneViewer\category_distance.txt")
-
+        self.room_mesh_list = []
 
 
 
@@ -59,6 +63,39 @@ class Initializer:
             agglomerative_label =  [0 for _ in range(length_of_objs)]
         return agglomerative_label
 
+
+
+    def load_room_as_scene(self,room):
+        all_meshes = []
+        for obj in room['objList']:
+            if obj['inDatabase']:
+                obj_filename = os.path.join(OBJ_DIR, obj['modelId'],f'{obj['modelId']}.obj')
+                mesh = load_objs_as_meshes([obj_filename],device=self.device)
+                translate = torch.Tensor(obj['translate'])
+                scale = torch.Tensor(obj['scale'])
+                rotate = torch.Tensor(obj['rotate'])
+
+                S = torch.diag(torch.tensor([scale[0],scale[1],scale[2],1.0])).to(self.device)
+
+                x_axis = torch.tensor([1,0,0]).to(self.device)
+                y_axis = torch.tensor([0,1,0]).to(self.device)
+                z_axis = torch.tensor([0,0,1]).to(self.device)
+
+                euler_angle = torch.tensor(rotate)
+                R = euler_angles_to_matrix(euler_angle,convention=obj['rotateOrder'])
+                R = torch.cat((R, torch.zeros(3, 1)), dim=1)
+                R = torch.cat((R, torch.tensor([[0, 0, 0, 1.0]])), dim=0)
+                R = R.to(self.device)
+
+                T = torch.eye(4)
+                T[:3, 3] = torch.tensor(translate)
+                T = T.to(device=self.device)
+                transform = T @ R @ S
+
+                temp = mesh.transform_verts(transform)
+                all_meshes.append(temp)
+        scene = join_meshes_as_scene(all_meshes)
+        return scene        
 
     def initialize(self):
         semantic_tokens = []
@@ -114,8 +151,11 @@ class Initializer:
         
 
         # init views
+
+
         for room_id in self.probe_idx[:3]:
             room = self.scene['rooms'][room_id]
+            self.room_mesh_list.append(self.load_room_as_scene(room))
             labels = self.furnitureCluster(room)
 
             furniture_groups = [[] for _ in range(len(labels))]
