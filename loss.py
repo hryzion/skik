@@ -87,13 +87,69 @@ class LossFunc(nn.Module):
 
 # TODO: Yirui to complete
 class ORBLoss(nn.Module):
+
     def __init__(self, args = None):
         super(ORBLoss, self).__init__()
         self.device = args.device
-        
+
         
     def forward(self,sketch, target):
-        pass
+        import cv2
+        self.tensor_img1 = sketch
+        self.tensor_img2 = target
+        self.tensor_img1 = (self.rgb_to_grayscale(self.tensor_img1)*255).clamp(0,255)
+        self.tensor_img2 = (self.rgb_to_grayscale(self.tensor_img2)*255).clamp(0,255)
+        cv_img1 = self.tensor_to_np(self.tensor_img1).astype(np.uint8)
+        cv_img2 = self.tensor_to_np(self.tensor_img2).astype(np.uint8)
+        #现tensor_img形状为Tensor:(1,1,224,224)
+        # 实际上会自动转化为灰度图再进行SIFT操作
+        # cv_img1 = cv2.cvtColor(np_img1, cv2.COLOR_BGR2GRAY)
+        # cv_img2 = cv2.cvtColor(np_img2, cv2.COLOR_BGR2GRAY)
+        orb = cv2.ORB_create()
+        #此处描述子用于match，不用于计算loss
+        keypoints1, descriptors1 = orb.detectAndCompute(cv_img1, None)
+        keypoints2, descriptors2 = orb.detectAndCompute(cv_img2, None)
+
+        bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)  # L2表示使用欧式距离，crossCheck=True确保一对匹配是双向一致的
+        matches = bf.match(descriptors1, descriptors2)
+        matches = sorted(matches, key=lambda x: x.distance)  # 排序
+        matches = matches[:10]  # 取前十个
+        #下为两组匹配点的二维列表
+        points1 = np.array(np.round([keypoints1[m.queryIdx].pt for m in matches]))
+        points2 = np.array(np.round([keypoints2[m.trainIdx].pt for m in matches]))
+        points1_tensor = torch.tensor(points1,dtype=torch.float32,device=self.device, requires_grad=True)
+        points2_tensor = torch.tensor(points2,dtype=torch.float32,device=self.device, requires_grad=True)
+        #计算两组点的误差
+        loss_1 = torch.mean(torch.norm(points1_tensor - points2_tensor, dim=1))#匹配点的距离求平均
+        loss_2 = torch.mean((points1_tensor - points2_tensor)**2)#两个张量的mse
+        #如果认为匹配组合i的x,y方向的误差与匹配组合j的x,y方向的误差地位相等，可以采用loss_2即mse
+        return loss_1
+
+    def rgb_to_grayscale(tensor):
+        """
+        将彩色图像张量转换为灰度图，保持计算图以支持反向传播。
+
+        参数:
+            tensor (torch.Tensor): 形状为 (B, 3, H, W) 的输入 RGB 图像张量。
+
+        返回:
+            torch.Tensor: 形状为 (B, 1, H, W) 的灰度图张量。
+        """
+        # RGB 通道权重
+        weights = torch.tensor([0.299, 0.587, 0.114], device=tensor.device, dtype=tensor.dtype)
+        if tensor.shape == torch.Size([1,224,224,4]):#sketch和render的shape不同，在这里统一处理
+            tensor = tensor[...,0:3]
+            tensor = torch.permute(tensor,(0,3,1,2))
+        grayscale = torch.tensordot(tensor, weights, dims=([1], [0]))
+        # 增加一个通道维度 (B, H, W) -> (B, 1, H, W)
+        grayscale = grayscale.unsqueeze(1)
+        return grayscale
+
+    def tensor_to_np(tensor):
+        tensor = tensor[0]
+        tensor = tensor.permute(1, 2, 0)
+        nparray = tensor.detach().cpu().numpy()
+        return nparray
 
 class SinkhornLoss(nn.Module):
     def __init__(self, args = None):
