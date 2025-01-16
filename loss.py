@@ -23,6 +23,7 @@ class LossFunc(nn.Module):
         self.vae_loss = args.vae_loss
         self.orb_loss = args.orb_loss
         self.sample_loss = args.sample_loss
+        self.l2_loss = args.l2_loss
 
         self.args = args
         self.losses_to_apply = self.get_losses_to_apply()
@@ -31,7 +32,8 @@ class LossFunc(nn.Module):
             'clip':CLIPLoss(args),
             "clip_conv_loss": CLIPConvLoss(args),
             'sample_loss' :SinkhornLoss(args),
-            'orb_loss':ORBLoss(args)
+            'orb_loss':ORBLoss(args),
+            "l2_loss" :L2Loss(args)
         }
 
     def get_losses_to_apply(self):
@@ -48,6 +50,8 @@ class LossFunc(nn.Module):
             losses_to_apply.append("orb_loss")
         if self.sample_loss:
             losses_to_apply.append("sample_loss")
+        if self.l2_loss:
+            losses_to_apply.append("l2")
         return losses_to_apply
     
     def forward(self, sketches, targets,  mode="train"):
@@ -66,7 +70,7 @@ class LossFunc(nn.Module):
                     losses_dict[layer] = conv_loss[layer]
             elif loss_name == "l2":
                 losses_dict[loss_name] = self.loss_mapper[loss_name](
-                    sketches, targets).mean()
+                    sketches, targets)
             elif loss_name == "sample_loss":
                 losses_dict[loss_name] = self.loss_mapper[loss_name](
                     sketches, targets
@@ -83,7 +87,10 @@ class LossFunc(nn.Module):
         return losses_dict
     
 
-
+class L2Loss(nn.Module):
+    def __init__(self, args = None):
+        super(L2Loss, self).__init__()
+        self.device = args.device
 
 # TODO: Yirui to complete
 class ORBLoss(nn.Module):
@@ -160,7 +167,7 @@ class SinkhornLoss(nn.Module):
         x =torch.linspace(0,1,self.res)
         y = torch.linspace(0,1,self.res)
         pts = torch.meshgrid(x, y)
-        self.pos = torch.cat([pts[1][...,None],pts[2][...,None]],dim=2)[None, ...] # 1, H, W, 2
+        self.pos = torch.cat([pts[1][...,None],pts[0][...,None]],dim=2)[None, ...] # 1, H, W, 2
         
     def match_point(self, sketch_point_3d, target_point_3d):
         _ , h, w, c = sketch_point_3d.shape

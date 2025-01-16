@@ -16,6 +16,8 @@ beta_pos = 10
 
 theta_scale = 40
 pos_scale = 2
+DATA_DIR = "/mnt/e/dataset/scenes"
+OBJ_DIR = '/mnt/e/dataset/3DFront_p/object/'
 
 
 import argparse
@@ -54,7 +56,7 @@ def parse_arguments():
     parser.add_argument("--aug_scale_min", type=float, default=0.7)
     parser.add_argument("--force_sparse", type=float, default=0,
                         help="if True, use L1 regularization on stroke's opacity to encourage small number of strokes")
-    parser.add_argument("--clip_conv_loss", type=float, default=1)
+    parser.add_argument("--clip_conv_loss", action= "store_true", default=False)
     parser.add_argument("--clip_conv_loss_type", type=str, default="L2")
     parser.add_argument("--clip_conv_layer_weights",
                         type=str, default="0,0,1.0,1.0,0")
@@ -62,8 +64,9 @@ def parse_arguments():
     parser.add_argument("--clip_fc_loss_weight", type=float, default=1)
     parser.add_argument("--clip_text_guide", type=float, default=0)
     parser.add_argument("--text_target", type=str, default="none")
-    parser.add_argument("--orb_loss",type=bool, default= False)
-    parser.add_argument('--sample_loss', type=bool, default=False)
+    parser.add_argument("--orb_loss", action= "store_true", default= False)
+    parser.add_argument('--sample_loss',action= "store_true", default=False)
+    parser.add_argument('--l2_loss', action= "store_true", default=False)
     args = parser.parse_args()
 
     args.clip_conv_layer_weights = [
@@ -71,3 +74,5 @@ def parse_arguments():
     args.device = torch.device("cuda" if (
             torch.cuda.is_available() and torch.cuda.device_count() > 0) else "cpu")
     return args
+
+
