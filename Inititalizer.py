@@ -12,10 +12,18 @@ import tqdm
 from pytorch3d.transforms import Rotate, Translate, euler_angles_to_matrix
 from pytorch3d.structures import Meshes,join_meshes_as_scene
 from pytorch3d.io import load_obj,load_objs_as_meshes
+from pytorch3d.renderer import (
+    FoVPerspectiveCameras, look_at_view_transform, look_at_rotation, look_at_rotation_nvdiff,
+    RasterizationSettings, MeshRenderer, MeshRasterizer, BlendParams,
+    SoftSilhouetteShader, HardPhongShader, PointLights, TexturesVertex,
+    TexturesAtlas
+)
+
+from utils import *
+
 
 
 class Initializer:
-    
     def __init__(self, args):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.dataset_dir = args.dataset
@@ -29,6 +37,8 @@ class Initializer:
         self.eps = args.eps
         self.category_distance =np.loadtxt(rf"D:\zhx_workspace\SceneViewer\category_distance.txt")
         self.room_mesh_list = []
+        self.initialize_room()
+        self.hist = torch.Tensor(compute_histogram(self.sketch)).unsqueeze(0)
 
 
 
@@ -62,6 +72,59 @@ class Initializer:
         except:
             agglomerative_label =  [0 for _ in range(length_of_objs)]
         return agglomerative_label
+    
+    
+    def compute_histogram(image):
+        hist = cv2.calcHist([image], [0, 1, 2], None, [8, 8, 8], [0, 256, 0, 256, 0, 256])
+        hist = cv2.normalize(hist, hist).flatten()  # 归一化并展平
+        return hist
+
+    
+    def get_texts_and_colorhisto(self,render, room, room_id, mode="top"):
+        # top, 4d, 8d
+        
+        
+        # top-down views
+        if mode == "top":
+            bbox = room['bbox']
+            center = (np.array(bbox['max']) + np.array(bbox["min"]))/2
+            position = center.copy()
+            position[1] = bbox["max"][1]    
+            R = look_at_rotation(position, center, device=self.device)
+            T = -torch.bmm(R.transpose(1, 2), position[:, :, None])[:, :, 0]
+            scene = self.room_mesh_list[room_id]
+            with torch.no_grad():
+                img = render(scene.clone(),R=R,T=T)
+            if img.shape[-1] == 4:
+                img = img[..., 0:3]
+            img = render.visualize_img(img)
+
+            # get histo
+            hist = compute_histogram(img)
+
+            # get texts
+            objCount = 0
+            obj_dict = {}
+            text = ""
+            roomType = room['roomTypes'][0]
+            for obj in room['objList']:
+                if obj['coarseSemantic'] in ['Window','Door']:
+                    continue
+                objCount+=1
+                if obj['coarseSemantic'] in obj_dict.keys():
+                    obj_dict[obj['coarseSemantic']] += 1
+                else:
+                    obj_dict[obj['coarseSemantic']] = 1
+            if objCount == 0:
+                text = 'blank'
+
+            text = f'a photo of {roomType}'
+            for key,value in obj_dict.items(): 
+                text += f',{value} {key}'
+            return [hist], [text]
+        
+        else:
+            pass
 
 
 
@@ -77,10 +140,6 @@ class Initializer:
 
                 S = torch.diag(torch.tensor([scale[0],scale[1],scale[2],1.0])).to(self.device)
 
-                x_axis = torch.tensor([1,0,0]).to(self.device)
-                y_axis = torch.tensor([0,1,0]).to(self.device)
-                z_axis = torch.tensor([0,0,1]).to(self.device)
-
                 euler_angle = torch.tensor(rotate)
                 R = euler_angles_to_matrix(euler_angle,convention=obj['rotateOrder'])
                 R = torch.cat((R, torch.zeros(3, 1)), dim=1)
@@ -95,7 +154,33 @@ class Initializer:
                 temp = mesh.transform_verts(transform)
                 all_meshes.append(temp)
         scene = join_meshes_as_scene(all_meshes)
-        return scene        
+        return scene   
+
+
+    def initialize_room(self):
+        for room_id,room in enumerate(self.scene['rooms']):
+            self.room_mesh_list.append(self.load_room_as_scene(room))
+
+    def initialize_view(self, renderer ,mode = "top"):
+        histos = []
+        texts = []
+        for room_id, room in enumerate(self.scene['rooms']):
+            h, t = self.get_texts_and_colorhisto(renderer,room, room_id, mode)
+            histos += h
+            texts += t
+        tokens = clip.tokenize(texts).to(self.device)
+        self.model.eval()
+        logits_per_image, logits_per_text = self.model(self.sketch, tokens)
+        
+        histos = torch.Tensor(histos)
+        d_histo = torch.nn.functional.cosine_similarity(histos, self.hist,dim=1)
+        dist = logits_per_image + d_histo
+
+        probs= dist.softmax(dim = -1).detach().cpu().numpy()[0]
+        
+
+
+
 
     def initialize(self):
         semantic_tokens = []
@@ -116,27 +201,19 @@ class Initializer:
                 semantic_tokens.append('empty nothing')
                 continue
 
-            room_token = f'a sketch of {roomType}'
-            for key,value in obj_dict.items():
-                
+            room_token = f'a photo of {roomType}'
+            for key,value in obj_dict.items(): 
                 room_token += f',{value} {key}'
-            
             semantic_tokens.append(room_token[:77])
 
         if args.debug:
             for t in semantic_tokens:
                 print(t)
         text = clip.tokenize(semantic_tokens).to(self.device)
-
         self.model.eval()
-        # sketch_feature = self.model.encode_image(self.sketch)
-        # text_feature = self.model.encode_text(text)
-
         logits_per_image, logits_per_text = self.model(self.sketch, text)
-
+        print(f"logits_per_image shape is: {logits_per_image.shape}")
         probs = logits_per_image.softmax(dim=-1).detach().cpu().numpy()[0]
-        # print(probs)
-        
         probs = list(probs)
 
         new_p = probs[:]
@@ -151,63 +228,33 @@ class Initializer:
         
 
         # init views
-
-
-        for room_id in self.probe_idx[:3]:
-            room = self.scene['rooms'][room_id]
-            self.room_mesh_list.append(self.load_room_as_scene(room))
-            labels = self.furnitureCluster(room)
-
-            furniture_groups = [[] for _ in range(len(labels))]
-            idx =0
-            for obj in room['objList']:
-                if 'coarseSemantic' not in obj or obj["coarseSemantic"] == 'Window' or obj['coarseSemantic'] == 'Door':
-                    continue
-                furniture_groups[labels[idx]].append(obj)
-                idx += 1
+        # for room_id in self.probe_idx[:3]:
+        #     room = self.scene['rooms'][room_id]
+        #     self.room_mesh_list.append(self.load_room_as_scene(room))
+        #     labels = self.furnitureCluster(room)
+        #     furniture_groups = [[] for _ in range(len(labels))]
+        #     idx =0
+        #     for obj in room['objList']:
+        #         if 'coarseSemantic' not in obj or obj["coarseSemantic"] == 'Window' or obj['coarseSemantic'] == 'Door':
+        #             continue
+        #         furniture_groups[labels[idx]].append(obj)
+        #         idx += 1
             
-            group_tokens = []
+        #     group_tokens = []
 
-            for g in furniture_groups:
-                token = 'a sketch containing'
+        #     for g in furniture_groups:
+        #         token = 'a sketch containing'
 
-                for obj in g:
-                    token += f' {obj['coarseSemantic']}'
+        #         for obj in g:
+        #             token += f' {obj['coarseSemantic']}'
                 
-                group_tokens.append(token)
+        #         group_tokens.append(token)
             
+        #     group_t = clip.tokenize(group_tokens)
+        #     logits_per_image, logits_per_text = self.model(self.sketch, group_t)
+        #     probs = logits_per_image.softmax(dim=-1).detach().cpu().numpy()[0]
+        #     print(probs)                                                                                
 
-            group_t = clip.tokenize(group_tokens)
-
-            logits_per_image, logits_per_text = self.model(self.sketch, group_t)
-
-            probs = logits_per_image.softmax(dim=-1).detach().cpu().numpy()[0]
-            
-
-            print(probs)                                                                                
-
-
-                
-
-
-                
-
-
-            
-        
-
-
-
-
-
-
-
-
-
-
-
-
-        
         
     def test(self):
         sketch_dir = "../PhotoSketch/Exp/PhotoSketch/SketchResults"
