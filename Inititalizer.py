@@ -24,7 +24,7 @@ from utils import *
 
 
 class Initializer:
-    def __init__(self, args):
+    def __init__(self, args, img):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.dataset_dir = args.dataset
         self.scene_name = args.scene
@@ -33,12 +33,10 @@ class Initializer:
             self.scene = json.load(f)
             f.close()
         self.args = args
-        self.sketch = self.preprocess(Image.open(args.sketch)).unsqueeze(0).to(args.device)
+        self.target_img = img.to(self.device)
         self.eps = args.eps
-        self.category_distance =np.loadtxt(rf"D:\zhx_workspace\SceneViewer\category_distance.txt")
         self.room_mesh_list = []
         self.initialize_room()
-        self.hist = torch.Tensor(compute_histogram(self.sketch)).unsqueeze(0)
 
 
 
@@ -82,7 +80,6 @@ class Initializer:
     
     def get_texts_and_colorhisto(self,render, room, room_id, mode="top"):
         # top, 4d, 8d
-        
         
         # top-down views
         if mode == "top":
@@ -170,16 +167,16 @@ class Initializer:
             texts += t
         tokens = clip.tokenize(texts).to(self.device)
         self.model.eval()
-        logits_per_image, logits_per_text = self.model(self.sketch, tokens)
+        logits_per_image, logits_per_text = self.model(self.target_img, tokens)
         
         histos = torch.Tensor(histos)
         d_histo = torch.nn.functional.cosine_similarity(histos, self.hist,dim=1)
         dist = logits_per_image + d_histo
 
         probs= dist.softmax(dim = -1).detach().cpu().numpy()[0]
+
+        # return a start view
         
-
-
 
 
     def initialize(self):
@@ -211,8 +208,8 @@ class Initializer:
                 print(t)
         text = clip.tokenize(semantic_tokens).to(self.device)
         self.model.eval()
-        logits_per_image, logits_per_text = self.model(self.sketch, text)
-        print(f"logits_per_image shape is: {logits_per_image.shape}")
+        logits_per_image, logits_per_text = self.model(self.target_img, text)
+        print(f"logits_per_image shape is: {logits_per_image.shape}, {logits_per_image}")
         probs = logits_per_image.softmax(dim=-1).detach().cpu().numpy()[0]
         probs = list(probs)
 
@@ -274,7 +271,7 @@ class Initializer:
                 b1sum+=1
                 roomid = int(img.split('-')[0].split('room')[-1])
             
-                self.sketch = self.preprocess(Image.open(os.path.join(sketch_dir,token,img))).unsqueeze(0).to(self.args.device)
+                self.target_img = self.preprocess(Image.open(os.path.join(sketch_dir,token,img))).unsqueeze(0).to(self.args.device)
                 pbs = self.initialize()
 
                 if roomid == pbs[0]:

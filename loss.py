@@ -29,11 +29,11 @@ class LossFunc(nn.Module):
         self.losses_to_apply = self.get_losses_to_apply()
         print(self.losses_to_apply)
         self.loss_mapper = {
-            'clip':CLIPLoss(args),
-            "clip_conv_loss": CLIPConvLoss(args),
+            # 'clip':CLIPLoss(args),
+            # "clip_conv_loss": CLIPConvLoss(args),
             'sample_loss' :SinkhornLoss(args),
             'orb_loss':ORBLoss(args),
-            "l2_loss" :L2Loss(args)
+            "l2" :L2Loss(args)
         }
 
     def get_losses_to_apply(self):
@@ -55,7 +55,7 @@ class LossFunc(nn.Module):
         return losses_to_apply
     
     def forward(self, sketches, targets,  mode="train"):
-
+ 
         losses_dict = dict.fromkeys(
             self.losses_to_apply, torch.tensor([0.0]).to(self.args.device))
         loss_coeffs = dict.fromkeys(self.losses_to_apply, 1.0)
@@ -91,6 +91,8 @@ class L2Loss(nn.Module):
     def __init__(self, args = None):
         super(L2Loss, self).__init__()
         self.device = args.device
+    def forward(self, img, target):
+        return torch.sum((img - target)** 2)
 
 # TODO: Yirui to complete
 class ORBLoss(nn.Module):
@@ -167,30 +169,46 @@ class SinkhornLoss(nn.Module):
         x =torch.linspace(0,1,self.res)
         y = torch.linspace(0,1,self.res)
         pts = torch.meshgrid(x, y)
-        self.pos = torch.cat([pts[1][...,None],pts[0][...,None]],dim=2)[None, ...] # 1, H, W, 2
+        self.pos = torch.cat([pts[1][...,None],pts[0][...,None]],dim=2)[None, ...].to(self.device) # 1, H, W, 2
         
-    def match_point(self, sketch_point_3d, target_point_3d):
-        _ , h, w, c = sketch_point_3d.shape
-        sketch_point_3d_match = sketch_point_3d.reshape(-1, h*w, c)
-        target_point_3d = target_point_3d.reshape(-1, h*w, c)
-        point_loss = self.loss(sketch_point_3d_match, target_point_3d) * self.res * self.res
-        [g] = torch.autograd.grad(torch.sum(point_loss),[sketch_point_3d_match])
-        return (sketch_point_3d - g.reshape(-1,h,w,c)).detach()
+    def match_point(self, haspos, render_point_5d, gt_rgb, view):
+        _ , h, w, c = render_point_5d.shape
+        target_point_5d = torch.zeros((haspos.shape[0], h, w, 5), device=self.device)
+        target_point_5d[..., :3] = torch.clamp(gt_rgb,0,1)
+        target_point_5d[..., 3:] = render_point_5d[...,3:].clone().detach()
+        target_point_5d = target_point_5d.reshape(-1, h*w, 5)
+        render_point_5d_match = render_point_5d.clone().reshape(-1,h*w,5)
+        render_point_5d_match.clamp_(0.0,1.0)
+        render_point_5d_match[...,:3] *= self.rgb_match_weight(view)
+        target_point_5d[...,:3] = target_point_5d[...,:3]*self.rgb_match_weight(view)
+        # print(target_point_5d.shape)
+        pointloss = self.loss(render_point_5d_match, target_point_5d)*self.resolution*self.resolution
+        # print(pointloss)
+        [g] = torch.autograd.grad(torch.sum(pointloss), [render_point_5d_match])
+        # print(g)
+        g[...,:3]/=self.rgb_match_weight(view)
+        
+        return (render_point_5d-g.reshape(-1,h,w,5)).detach()
 
         
 
-    def forward(self, sketch, target): # 1 ,1, H, W
-        if sketch.shape[1] == 1:
-            sketch = sketch.permute(0,2,3,1)
-        if target.shape[1] == 1:
-            target = target.permute(0,2,3,1)
-        
-        sketch_3d = torch.cat([sketch,self.pos],dim = -1) # 1, H, W, 3  grayXY
-        target_3d = torch.cat([target,self.pos],dim= -1)
+    def forward(self, render_res, gt_res, view  = 0): # 1 ,1, H, W
+        new_match = True
 
-        match_3d = self.match_point(sketch_3d,target_3d) # 1, h, w, 3
-        dist = match_3d-sketch_3d
-        return torch.mean(dist ** 2)
+        haspos = render_res["msk"]
+        render_pos = (render_res["pos"]+1.0)/2.0
+        render_rgb = render_res["images"]
+        render_pos[haspos==False]=self.pos[view:view+1][haspos==False].clone()
+        render_point_5d = torch.cat([render_rgb, render_pos], dim=-1)
+        gt_rgb=gt_res["images"][view:view+1]
+        
+        match_point_5d = self.match_point(haspos,render_point_5d,gt_rgb,view)
+        dist = match_point_5d - render_point_5d
+        loss = torch.mean(dist**2)
+
+        return loss
+
+        
 
         
 
