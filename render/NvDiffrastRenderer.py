@@ -245,3 +245,14 @@ class NVDiffRastFullRenderer(nn.Module):
             }
         
         return res
+
+    def get_visualized_img(self, img, flip = True, use_cv2 = False):
+        img = img.astype(np.float32)
+        img = img[...,:3]
+        if img.shape[-1]==3 and use_cv2:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        if flip:
+            img = cv2.flip(img, 0)
+        
+        img = (np.clip(img,0,1)*255).astype(np.uint8)
+        return img

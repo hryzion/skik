@@ -12,8 +12,11 @@ from loss import LossFunc
 from pytorch3d.renderer import (
     look_at_rotation_nvdiff
 )
+import os
+import imageio
 import tqdm
 from utils import *
+from skimage import img_as_ubyte
 args = config.parse_arguments()
 
 class SceneSeeker:
@@ -48,6 +51,14 @@ class SceneSeeker:
         # self.fov = init_views['fov']
         self.optimizer = torch.optim.Adam([self.position, self.center],lr = 0.02)
 
+        if not os.path.exists(f'./runs/exp{args.exp}'):
+            os.mkdir(f'./runs/exp{args.exp}')
+
+        filename_output = f"./runs/exp{args.exp}/matching_video.gif"
+
+        writer = imageio.get_writer(filename_output, mode='I', duration=10)
+
+
         # 进入主循环
         loss_func = LossFunc(args)
         for i in tqdm.tqdm(range(epoch)):
@@ -65,17 +76,29 @@ class SceneSeeker:
             self.optimizer.step()
 
             if i % self.args.save_interval == 0:
-                pass
+                save_img = render_res['images'].clone().detach().squeeze(0).numpy()
+                save_img = self.renderer.get_visualized_img(save_img)
+                writer.append_data(save_img)
+
+
+        writer.close()
         
         # 根据position和center渲染最终图像
         with torch.no_grad():
             mtce = get_camera_matrix(view, self.device)
             final_res = self.renderer.render()
-            final_img = final_res['image']
+            final_img = final_res['images'].detach().squeeze(0).numpy()
+            final_img = self.renderer.get_visualized_img(final_img,use_cv2=True)
+            cv2.imwrite(f"./runs/exp{args.exp}/final.png", final_img)
+
         
         # 计算总体差距 position & direction(norm(p-c))
         view_mae = calculate_view_mae(view, self.gt_view)
         
+
+    
+
+    
         
 
         
