@@ -20,12 +20,12 @@ from pytorch3d.renderer import (
 )
 
 from utils import *
-
+import matplotlib.pyplot as plt
 
 
 class Initializer:
-    def __init__(self, args, img):
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    def __init__(self, args):
+        self.device = args.device
         self.dataset_dir = args.dataset
         self.scene_name = args.scene
         self.model, self.preprocess = clip.load("ViT-B/32", device=self.device,jit=False)
@@ -33,12 +33,13 @@ class Initializer:
             self.scene = json.load(f)
             f.close()
         self.args = args
-        self.target_img = img.to(self.device)
         self.eps = args.eps
         self.room_mesh_list = []
         self.initialize_room()
 
 
+    def set_gt_img(self,img):
+        self.gt_img = img['images'].to(self.device)
 
     def furnitureCluster(self,room):
         objects = []
@@ -78,32 +79,45 @@ class Initializer:
         return hist
 
     
-    def get_texts_and_colorhisto(self,render, room, room_id, mode="top"):
+    def get_texts_and_colorhisto(self,renderer, room, room_id, mode="top"):
         # top, 4d, 8d
+
         
         # top-down views
         if mode == "top":
-            bbox = room['bbox']
-            center = (np.array(bbox['max']) + np.array(bbox["min"]))/2
-            position = center.copy()
-            position[1] = bbox["max"][1]    
-            R = look_at_rotation(position, center, device=self.device)
-            T = -torch.bmm(R.transpose(1, 2), position[:, :, None])[:, :, 0]
+            bbox = find_room_obb(room)
+            center = ((torch.tensor(bbox[0]) + torch.tensor(bbox[1]))/2).unsqueeze(0)
+            tmp = torch.abs(torch.tensor(bbox[0]-bbox[1]))
+            scale = torch.max(tmp[0],tmp[2])
+            print(scale)
+            position = center.clone()
+            print(position.dtype)
+            position[...,1] += scale
+            position[...,2] += 0.1
+            view ={
+                'position': position,
+                'center': center
+            }
+            print(view)
+            mtce = get_camera_matrix(view=view, device=self.device)
             scene = self.room_mesh_list[room_id]
             with torch.no_grad():
-                img = render(scene.clone(),R=R,T=T)
+                img = renderer.render(mtce,scene.clone(),False)['images']
             if img.shape[-1] == 4:
                 img = img[..., 0:3]
-            img = render.visualize_img(img)
+            img = img.cpu().squeeze(0).numpy()
+            img = renderer.get_visualized_img(img)
 
             # get histo
             hist = compute_histogram(img)
+            if self.args.debug:
+                plt.plot(hist)
+                plt.show()
 
             # get texts
+            roomType = room['roomTypes'][0]
             objCount = 0
             obj_dict = {}
-            text = ""
-            roomType = room['roomTypes'][0]
             for obj in room['objList']:
                 if obj['coarseSemantic'] in ['Window','Door']:
                     continue
@@ -112,13 +126,10 @@ class Initializer:
                     obj_dict[obj['coarseSemantic']] += 1
                 else:
                     obj_dict[obj['coarseSemantic']] = 1
-            if objCount == 0:
-                text = 'blank'
-
             text = f'a photo of {roomType}'
             for key,value in obj_dict.items(): 
                 text += f',{value} {key}'
-            return [hist], [text]
+            return [hist], [text], [view]
         
         else:
             pass
@@ -157,17 +168,31 @@ class Initializer:
     def initialize_room(self):
         for room_id,room in enumerate(self.scene['rooms']):
             self.room_mesh_list.append(self.load_room_as_scene(room))
+        print(len(self.room_mesh_list))
 
     def initialize_view(self, renderer ,mode = "top"):
         histos = []
         texts = []
         for room_id, room in enumerate(self.scene['rooms']):
-            h, t = self.get_texts_and_colorhisto(renderer,room, room_id, mode)
+            objCount = 0
+            obj_dict = {}
+            for obj in room['objList']:
+                if obj['coarseSemantic'] in ['Window','Door']:
+                    continue
+                objCount+=1
+                if obj['coarseSemantic'] in obj_dict.keys():
+                    obj_dict[obj['coarseSemantic']] += 1
+                else:
+                    obj_dict[obj['coarseSemantic']] = 1
+            if objCount == 0:
+                continue
+            h, t, v= self.get_texts_and_colorhisto(renderer,room, room_id, mode)
+            # print(f"The shape of histograms is {h.shape}")
             histos += h
             texts += t
         tokens = clip.tokenize(texts).to(self.device)
         self.model.eval()
-        logits_per_image, logits_per_text = self.model(self.target_img, tokens)
+        logits_per_image, logits_per_text = self.model(self.preprocess(self.gt_img), tokens)
         
         histos = torch.Tensor(histos)
         d_histo = torch.nn.functional.cosine_similarity(histos, self.hist,dim=1)
@@ -208,7 +233,7 @@ class Initializer:
                 print(t)
         text = clip.tokenize(semantic_tokens).to(self.device)
         self.model.eval()
-        logits_per_image, logits_per_text = self.model(self.target_img, text)
+        logits_per_image, logits_per_text = self.model(self.gt_img, text)
         print(f"logits_per_image shape is: {logits_per_image.shape}, {logits_per_image}")
         probs = logits_per_image.softmax(dim=-1).detach().cpu().numpy()[0]
         probs = list(probs)
@@ -271,7 +296,7 @@ class Initializer:
                 b1sum+=1
                 roomid = int(img.split('-')[0].split('room')[-1])
             
-                self.target_img = self.preprocess(Image.open(os.path.join(sketch_dir,token,img))).unsqueeze(0).to(self.args.device)
+                self.gt_img = self.preprocess(Image.open(os.path.join(sketch_dir,token,img))).unsqueeze(0).to(self.args.device)
                 pbs = self.initialize()
 
                 if roomid == pbs[0]:

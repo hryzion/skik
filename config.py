@@ -29,7 +29,7 @@ def parse_arguments():
 
     parser.add_argument('--scene', type=str, default='000ecb5b-b877-4f9a-ab6f-90f385931658')
     parser.add_argument('--dataset', type=str, default='./data/scenes')
-    parser.add_argument('--debug',type=int,default=0)
+    parser.add_argument('--debug',action= "store_true",default=False)
     parser.add_argument('--sketch',type=str,default='./data/sketch/sketch3.jpg')
     parser.add_argument('--eps',type=float,default=1e-1)
 
@@ -37,6 +37,10 @@ def parse_arguments():
     parser.add_argument('--res', type=int,default=256)
 
     parser.add_argument('--exp',type=int,default=1)
+
+    parser.add_argument("--settings", type=str, default="scene_1")
+ 
+
     parser.add_argument("--percep_loss", type=str, default="none",
                         help="the type of perceptual loss to be used (L2/LPIPS/none)")
     parser.add_argument("--perceptual_weight", type=float, default=0,
