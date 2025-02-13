@@ -31,6 +31,7 @@ def parse_arguments():
     parser.add_argument('--dataset', type=str, default='./data/scenes')
     parser.add_argument('--debug',action= "store_true",default=False)
     parser.add_argument('--sketch',type=str,default='./data/sketch/sketch3.jpg')
+    parser.add_argument('--epoch',type=int, default=50)
     parser.add_argument('--eps',type=float,default=1e-1)
 
     parser.add_argument('--sample',type=bool, default=0)
@@ -39,6 +40,7 @@ def parse_arguments():
     parser.add_argument('--exp',type=int,default=1)
 
     parser.add_argument("--settings", type=str, default="scene_1")
+    parser.add_argument('--save_interval', type=int, default= 10)
  
 
     parser.add_argument("--percep_loss", type=str, default="none",

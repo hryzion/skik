@@ -8,13 +8,28 @@ from pytorch3d.renderer import (
     get_world_to_view_transform
 )
 
+def get_uint_mask(msk):
+        tmp = msk.squeeze(0).cpu()
+        mask = np.zeros(msk.squeeze(0).cpu().shape, np.uint8)
+        mask[tmp == True] = 1
+        return mask
 
-def compute_histogram(image):
-    cv2.imshow("test", image)
-    cv2.waitKey()
+def get_visualized_img(img, flip = True, use_cv2 = False):
+        img = img.astype(np.float32)
+        img = img[...,:3]
+        if img.shape[-1]==3 and use_cv2:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        if flip:
+            img = cv2.flip(img, 0)
+        
+        img = (np.clip(img,0,1)*255).astype(np.uint8)
+        return img
 
-    hist = cv2.calcHist([image], [0, 1, 2], None, [8, 8, 8], [0, 256, 0, 256, 0, 256])
-    print(hist)
+def bhattacharyya_distance(H1, H2):
+    return -torch.log(torch.sum(np.sqrt(H1 * H2),dim=1))
+
+def compute_histogram(image ,msk = None):
+    hist = cv2.calcHist([image], [0, 1, 2],msk, [8, 8, 8], [0, 256, 0, 256, 0, 256])
     hist = cv2.normalize(hist, hist).flatten()  # 归一化并展平
     return hist
 
@@ -24,8 +39,8 @@ def cosine_distance(hist1, hist2):
     return 1 - cosine_sim.item()
 
 def get_camera_matrix(view, device):
-    position = torch.tensor(view["position"],device=device)
-    center = torch.tensor(view['center'], device=device)
+    position = torch.tensor(view["position"], device=device, requires_grad=True)
+    center = torch.tensor(view['center'], device=device, requires_grad=True)
     
     R = look_at_rotation_nvdiff(position, center, device=device)
     T = -torch.bmm(R.transpose(1, 2), position[:, :, None])[:, :, 0]
@@ -47,15 +62,15 @@ def get_camera_matrix(view, device):
 
 
 def to_direction(view):
-    position = view['position']
-    center = view["center"]
-    direction = (center - position) / np.linalg.norm(position - center)
-    return position, direction
+    position = torch.tensor(view['position'])
+    center = torch.tensor(view["center"])
+    direction = (center - position) / torch.norm(position - center)
+    return torch.cat([position, direction], dim=0)
 
 
 def calculate_view_mae(view, gt):
-    view = torch.tensor(to_direction(view))
-    gt = torch.tensor(to_direction(gt))
+    view = to_direction(view).cpu()
+    gt = to_direction(gt).cpu()
     return torch.sum((view-gt)**2)
 
 def find_room_obb(room):
@@ -89,3 +104,57 @@ def find_room_obb(room):
         if obj['bbox']['max'][1] >g_max[1]:
             g_max[1] = obj['bbox']['max'][1]
     return g_max,g_min
+
+
+
+def show_room(room,scale):
+    img = np.zeros((scale,scale,3),np.uint8)
+    img[:] = (255,255,255)
+    centre = (scale//2, scale//2)
+    
+    
+ 
+    K = 100
+
+    roomShape = room['roomShape']
+    bbox = np.array(find_room_obb(room))
+    old_centre = (bbox[0]+bbox[1])/2
+    old_centre = np.array([old_centre[0],old_centre[2]])
+
+    # draw walls of the room
+    for wall_index in range(len(roomShape)):
+        wall_next = (wall_index+1) % len(roomShape)
+        p1 = (np.array(roomShape[wall_index])-old_centre)*K+centre
+        p1[0] = int(p1[0])
+        p1[1] = int(p1[1])
+        p2 = (np.array(roomShape[wall_next])-old_centre)*K+centre
+        p2[0] = int(p2[0])
+        p2[1] = int(p2[1])
+        p1 = np.array(p1,np.int32)
+        p2 = np.array(p2,np.int32)
+        cv2.line(img,p1,p2,(255,255,255),8)
+        
+    # draw objects 
+    colors = [(0,0,255),(255,0,0), (0,255,0),(255,255,0),(0,255,255), (255,0,255),(0,200,200),(128,128,128),(156,12,245)]
+    idx = 0
+    for obj in room['objList']:
+        if 'coarseSemantic' not in obj or obj['coarseSemantic'] == 'Door' or obj['coarseSemantic'] == 'Window':
+            continue
+        p_max = (np.array((obj['bbox']['max'][0],obj['bbox']['max'][2]))-old_centre)*K+centre
+        p_min = (np.array((obj['bbox']['min'][0],obj['bbox']['min'][2]))-old_centre)*K+centre
+        p_max = np.array(p_max,np.int32)
+        p_min = np.array(p_min,np.int32)
+        
+
+
+        # cv2.rectangle(img,p_min,p_max,colors[groups[idx]],8)
+        cv2.rectangle(img,p_min,p_max,colors[0],8)
+        idx+=1
+    
+    
+        
+    cv2.imshow('tst',img)
+    #cv2.imwrite(f'C:\\Users\\evan\\Desktop\\zhx_workspace\\SceneViewer\\cluster_result\\{scene_json["origin"]}.jpg',img)
+
+    cv2.waitKey(0)
+

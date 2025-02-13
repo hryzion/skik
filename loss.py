@@ -179,14 +179,14 @@ class SinkhornLoss(nn.Module):
         target_point_5d = target_point_5d.reshape(-1, h*w, 5)
         render_point_5d_match = render_point_5d.clone().reshape(-1,h*w,5)
         render_point_5d_match.clamp_(0.0,1.0)
-        render_point_5d_match[...,:3] *= self.rgb_match_weight(view)
-        target_point_5d[...,:3] = target_point_5d[...,:3]*self.rgb_match_weight(view)
+        # render_point_5d_match[...,:3] *= self.rgb_match_weight(view)
+        # target_point_5d[...,:3] = target_point_5d[...,:3]*self.rgb_match_weight(view)
         # print(target_point_5d.shape)
-        pointloss = self.loss(render_point_5d_match, target_point_5d)*self.resolution*self.resolution
+        pointloss = self.loss(render_point_5d_match, target_point_5d)*self.res*self.res
         # print(pointloss)
         [g] = torch.autograd.grad(torch.sum(pointloss), [render_point_5d_match])
         # print(g)
-        g[...,:3]/=self.rgb_match_weight(view)
+        # g[...,:3]/=self.rgb_match_weight(view)
         
         return (render_point_5d-g.reshape(-1,h,w,5)).detach()
 
@@ -204,7 +204,7 @@ class SinkhornLoss(nn.Module):
         
         match_point_5d = self.match_point(haspos,render_point_5d,gt_rgb,view)
         dist = match_point_5d - render_point_5d
-        loss = torch.mean(dist**2)
+        loss = torch.sum(dist**2)
 
         return loss
 
