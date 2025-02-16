@@ -81,4 +81,45 @@ def parse_arguments():
             torch.cuda.is_available() and torch.cuda.device_count() > 0) else "cpu")
     return args
 
+# 类别到颜色的映射表
+category_to_color = {
+    'Barstool': [1.0, 0.0, 0.0],  # 红色
+    'Bookcase / jewelry Armoire': [0.0, 1.0, 0.0],  # 绿色
+    'Bunk Bed': [0.0, 0.0, 1.0],  # 蓝色
+    'Ceiling Lamp': [1.0, 1.0, 0.0],  # 黄色
+    'Chaise Longue Sofa': [1.0, 0.0, 1.0],  # 紫色
+    'Children Cabinet': [0.0, 1.0, 1.0],  # 青色
+    'Classic Chinese Chair': [1.0, 0.5, 0.0],  # 橙色
+    'Coffee Table': [0.5, 0.0, 1.0],  # 紫罗兰色
+    'Corner/Side Table': [0.5, 0.5, 0.5],  # 灰色
+    'Desk': [1.0, 0.5, 0.5],  # 粉红色
+    'Dining Chair': [0.5, 1.0, 0.5],  # 浅绿色
+    'Dining Table': [0.5, 0.5, 1.0],  # 浅蓝色
+    'Drawer Chest / Corner cabinet': [0.3, 0.3, 0.3],  # 深灰色
+    'Dressing Chair': [0.7, 0.7, 0.7],  # 浅灰色
+    'Dressing Table': [1.0, 0.75, 0.0],  # 金色
+    'Footstool / Sofastool / Bed End Stool / Stool': [0.5, 0.25, 0.0],  # 棕色
+    'Kids Bed': [0.2, 0.8, 0.8],  # 水蓝色
+    'King-size Bed': [0.8, 0.2, 0.8],  # 品红色
+    'L-shaped Sofa': [0.8, 0.8, 0.2],  # 橄榄绿
+    'Lazy Sofa': [0.2, 0.2, 0.8],  # 深蓝色
+    'Lounge Chair / Cafe Chair / Office Chair': [0.2, 0.8, 0.2],  # 深绿色
+    'Loveseat Sofa': [0.8, 0.2, 0.2],  # 深红色
+    'Nightstand': [0.2, 0.6, 0.6],  # 蓝绿色
+    'Pendant Lamp': [0.6, 0.2, 0.6],  # 紫红色
+    'Round End Table': [0.6, 0.6, 0.2],  # 土黄色
+    'Shelf': [0.2, 0.4, 0.6],  # 海军蓝
+    'Sideboard / Side Cabinet / Console table': [0.4, 0.2, 0.6],  # 靛蓝色
+    'Single bed': [0.6, 0.4, 0.2],  # 赭色
+    'TV Stand': [0.4, 0.6, 0.2],  # 黄绿色
+    'Three-seat / Multi-seat Sofa': [0.2, 0.6, 0.4],  # 蓝绿色
+    'Wardrobe': [0.6, 0.2, 0.4],  # 玫瑰红色
+    'Wine Cabinet': [0.4, 0.2, 0.4],  # 深紫色
+    'armchair': [0.2, 0.4, 0.2],  # 深绿色
+}
+
+
+
+def semantic_color(obj):
+    return category_to_color[obj['coarseSemantic']]
 

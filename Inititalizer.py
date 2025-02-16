@@ -4,7 +4,7 @@ import os
 import numpy as np
 from PIL import Image
 import config
-from config import DATA_DIR, OBJ_DIR
+from config import DATA_DIR, OBJ_DIR, category_to_color
 
 import CLIP_.clip as clip
 import torch
@@ -34,6 +34,7 @@ class Initializer:
         self.args = args
         self.eps = args.eps
         self.room_mesh_list = []
+        self.color_list = []
         self.initialize_room()
 
 
@@ -71,8 +72,9 @@ class Initializer:
             }
             mtce = get_camera_matrix(view=view, device=self.device)
             scene = self.room_mesh_list[room_id]
+            color = self.color_list[room_id]
             with torch.no_grad():
-                render_res = renderer.render(mtce,scene.clone(),False)
+                render_res = renderer.render(mtce,scene.clone(), color.clone(),False)
                 img = render_res['images']
                 msk = get_uint_mask(render_res["msk"])
             
@@ -112,6 +114,9 @@ class Initializer:
 
     def load_room_as_scene(self,room):
         all_meshes = []
+
+        count = 0
+        scene_vert_color = None
         for obj in room['objList']:
             if obj['inDatabase']:
                 obj_filename = os.path.join(OBJ_DIR, obj['modelId'],f'{obj['modelId']}.obj')
@@ -135,14 +140,24 @@ class Initializer:
 
                 temp = mesh.transform_verts(transform)
                 all_meshes.append(temp)
+                
+                obj_color = torch.tensor([category_to_color[obj['coarseSemantic']].copy()] * len(mesh.verts_list()[0]))
+                if count == 0:
+                    scene_vert_color = obj_color
+                else:
+                    scene_vert_color = torch.cat([scene_vert_color, obj_color], dim= 0)
+                count +=1 
+        
+        
         scene = join_meshes_as_scene(all_meshes)
-        return scene   
-
+        return scene, scene_vert_color
 
     def initialize_room(self):
         for room_id,room in enumerate(self.scene['rooms']):
-            self.room_mesh_list.append(self.load_room_as_scene(room))
-        print(len(self.room_mesh_list))
+            mesh, vert_color = self.load_room_as_scene(room)
+            self.room_mesh_list.append(mesh)
+            self.color_list.append(vert_color)
+        print((self.color_list[6].shape))
 
     def initialize_view(self, renderer ,mode = "top"):
         if mode == "manual":
