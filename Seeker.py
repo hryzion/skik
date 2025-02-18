@@ -36,6 +36,7 @@ class SceneSeeker:
         self.rooms_meshes_list = self.initializer.room_mesh_list
         self.color_list = self.initializer.color_list
         self.resolution = (args.res, args.res)
+
         # 初始化Renderer
         self.renderer = NVDiffRastFullRenderer(self.device, self.settings,self.resolution,1)
 
@@ -43,15 +44,20 @@ class SceneSeeker:
         self.gt_view = self.settings['gt_view']
         mtce = get_camera_matrix(self.gt_view, self.device)
         with torch.no_grad():
-            self.gt_img = self.renderer.render(view=mtce,scene_mesh=self.rooms_meshes_list[self.gt_view['room_id']], color_list=self.color_list[self.gt_view["room_id"]],DcDt=False)    
+            self.gt_img = self.renderer.render(view=mtce,scene_mesh=self.rooms_meshes_list[self.gt_view['room_id']], color_list=self.color_list[self.gt_view["room_id"]])    
         save_gt = self.gt_img["images"].cpu().squeeze(0).numpy()
         save_gt = get_visualized_img(save_gt,use_cv2=True)
         save_semantic = self.gt_img['semantics'].cpu().squeeze(0).numpy()
         save_semantic = get_visualized_img(save_semantic, use_cv2=True)
+
         cv2.imwrite(f"./runs/exp{args.exp}/gt_img.png",save_gt)
         cv2.imwrite(f'./runs/exp{args.exp}/gt_semantic.png', save_semantic)
         
         self.initializer.set_gt_img(self.gt_img)
+
+    
+    def semantic_segment(self):
+        pass
         
     def seek(self):
         # 使用ViewInitializer初始化视点, dict
@@ -101,7 +107,7 @@ class SceneSeeker:
             }
             # print(mtce)
             # Renderer渲染 (img & pos)
-            render_res = self.renderer.render(mtce, scene_mesh=self.rooms_meshes_list[self.room_id],DcDt=False)
+            render_res = self.renderer.render(mtce, scene_mesh=self.rooms_meshes_list[self.room_id], color_list=self.color_list[self.room_id])
             # 计算SinkHornLoss
             losses_dict = loss_func(render_res, self.gt_img)
             # print(losses_dict)
@@ -133,7 +139,7 @@ class SceneSeeker:
                 'center': self.center
             }
             mtce = get_camera_matrix(grad_view, self.device)
-            final_res = self.renderer.render(mtce, self.rooms_meshes_list[self.room_id],DcDt=False)
+            final_res = self.renderer.render(mtce, self.rooms_meshes_list[self.room_id],self.color_list[self.room_id])
             final_img = final_res['images'].detach().cpu().squeeze(0).numpy()
             final_img = get_visualized_img(final_img,use_cv2=True)
             cv2.imwrite(f"./runs/exp{args.exp}/final.png", final_img)

@@ -76,6 +76,7 @@ class Initializer:
             with torch.no_grad():
                 render_res = renderer.render(mtce,scene.clone(), color.clone(),False)
                 img = render_res['images']
+                
                 msk = get_uint_mask(render_res["msk"])
             
             if img.shape[-1] == 4:

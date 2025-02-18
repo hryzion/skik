@@ -65,6 +65,7 @@ class NVDiffRastFullRenderer(nn.Module):
     def render_point_image(self, cam_mtx, persp_mtx, rast_out, pos, pos_idx, resolution: int):
         pos_view = transform_pos(cam_mtx, pos)
         msk = (rast_out[...,3]!=0)
+        # print(pos_view.shape)
         pos_3d,_ = dr.interpolate(pos_view, rast_out, pos_idx)
         depth = -pos_3d[...,2]
         depth[rast_out[...,3]==0]=1000000
@@ -73,9 +74,16 @@ class NVDiffRastFullRenderer(nn.Module):
         pos_2d = pos_3d[...,:2]/pos_3d[...,3:]
         return depth, pos_2d, msk    
     
-    def render_mesh(self, mesh, mtx, view_pos, light_pos, light_power, resolution, DcDt, material=None, rast_out=None, envmap=None):
+    def render_semantic_image(self,  color_list, pos_idx, rast_out):
+        tex = color_list.to(self.device)
+        semantic_color, _ = dr.interpolate(tex[None, ...], rast_out,pos_idx)
+        return semantic_color
+
+
+    def render_mesh(self, mesh, mtx, view_pos, light_pos, light_power, resolution, material=None, rast_out=None, envmap=None, color_list = None):
         pos = mesh.verts_list()[0].to(self.device).contiguous()
         pos_idx = mesh.faces_list()[0].to(self.device).to(torch.int32).contiguous()
+        color_list = color_list.to(self.device)
         if type(mesh.textures)==TexturesUV:
             uv_idx = mesh.textures.faces_uvs_list()[0].to(self.device).to(torch.int32)
             uv = mesh.textures.verts_uvs_list()[0].to(self.device)
@@ -90,8 +98,7 @@ class NVDiffRastFullRenderer(nn.Module):
             uv_idx = None
             tex = None
 
-        if DcDt==False:
-            pos = pos.detach()
+        # pos = pos.detach()
 
         pos_clip = transform_pos(mtx, pos)
         if rast_out==None:
@@ -99,8 +106,8 @@ class NVDiffRastFullRenderer(nn.Module):
         else:
             rast_out_db=None
         
-        if DcDt==False:
-            rast_out = rast_out.detach()
+        # if DcDt==False:
+        # rast_out = rast_out.detach()
         
         if tex != None and uv!=None:
             texc, _ = dr.interpolate(uv[None, ...], rast_out, uv_idx)
@@ -110,6 +117,7 @@ class NVDiffRastFullRenderer(nn.Module):
         else:
             color = torch.zeros_like(rast_out)[...,:3]
         
+        color, _= dr.interpolate(color_list[None, ...],rast_out, pos_idx)
         # if self.shading==True:
         #     normal = mesh.verts_normals_list()[0].to(self.device)
         #     normals, _ = dr.interpolate(normal[None, ...], rast_out, pos_idx)
@@ -137,15 +145,15 @@ class NVDiffRastFullRenderer(nn.Module):
         for i in range(rast_out.shape[0]):
             color[i][rast_out[i,..., -1]==0]=self.render_result[i][rast_out[i,..., -1]==0]
         
-        if DcDt:
-            color = dr.antialias(color.contiguous(), rast_out, pos_clip, pos_idx)
+        # if DcDt:
+        #     color = dr.antialias(color.contiguous(), rast_out, pos_clip, pos_idx)
         
-        return color, [rast_out], [rast_out_db]
+        return color, [rast_out], [rast_out_db], color
     
-    def render(self, view, scene_mesh, DcDt, rasts_list=None):
+    def render(self, view, scene_mesh, color_list, rasts_list=None):
         meshes = scene_mesh
         perspective_matrix = view["perspective_mtx"]
-        resolution = self.resolution[0]#sensor["resolution"][0]
+        resolution = self.resolution[0]
         vp = view['view_mtx']
         camera_matrix = view["camera_mtx"]
         lookFrom = view['position']
@@ -156,11 +164,14 @@ class NVDiffRastFullRenderer(nn.Module):
         msk_buffer = torch.zeros((num_view,self.resolution[1],self.resolution[0]),dtype=torch.bool).to(self.device)
         new_rasts_list = []
 
-        render_image, rasts, dbs = self.render_mesh(mesh = meshes, mtx=vp, view_pos=lookFrom, light_pos=lookFrom, light_power=self.light_power, resolution=resolution, DcDt=DcDt)
+        render_image, rasts, dbs, semantic_img= self.render_mesh(mesh = meshes, mtx=vp, view_pos=lookFrom, light_pos=lookFrom, light_power=self.light_power, resolution=resolution, color_list=color_list)
+        # print(render_image.requires_grad)
         pos = meshes.verts_list()[0].to(self.device)
         pos_idx = meshes.faces_list()[0].to(self.device).to(torch.int32).contiguous()
+        # semantic_img = self.render_semantic_image(color_list, pos_idx, rasts[-1])
         depth_map, pos_map, msk = self.render_point_image(camera_matrix, perspective_matrix, rasts[-1].detach(), pos, pos_idx, resolution)      
-        
+        # print(pos_map.requires_grad)
+        print(semantic_img.requires_grad)
         msk_buffer = msk_buffer | msk
         pos_buffer = pos_map
         self.render_result = render_image
@@ -170,7 +181,8 @@ class NVDiffRastFullRenderer(nn.Module):
                 "depth":depth_buffer,
                 "msk":msk_buffer,
                 "pos": pos_buffer,
-                "rasts": new_rasts_list
+                "rasts": new_rasts_list,
+                "semantics":semantic_img
             }
         
         return res
@@ -246,13 +258,4 @@ class NVDiffRastFullRenderer(nn.Module):
         
         return res
 
-    def get_visualized_img(self, img, flip = True, use_cv2 = False):
-        img = img.astype(np.float32)
-        img = img[...,:3]
-        if img.shape[-1]==3 and use_cv2:
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        if flip:
-            img = cv2.flip(img, 0)
-        
-        img = (np.clip(img,0,1)*255).astype(np.uint8)
-        return img
+    

@@ -71,8 +71,9 @@ def parse_arguments():
     parser.add_argument("--clip_text_guide", type=float, default=0)
     parser.add_argument("--text_target", type=str, default="none")
     parser.add_argument("--orb_loss", action= "store_true", default= False)
-    parser.add_argument('--sample_loss',action= "store_true", default=False)
     parser.add_argument('--l2_loss', action= "store_true", default=False)
+    parser.add_argument('--sample_loss',action= "store_true", default=False)
+    parser.add_argument('--semantic_loss',action= "store_true", default=False)
     args = parser.parse_args()
 
     args.clip_conv_layer_weights = [

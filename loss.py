@@ -24,6 +24,7 @@ class LossFunc(nn.Module):
         self.orb_loss = args.orb_loss
         self.sample_loss = args.sample_loss
         self.l2_loss = args.l2_loss
+        self.semantic_loss = args.semantic_loss
 
         self.args = args
         self.losses_to_apply = self.get_losses_to_apply()
@@ -33,7 +34,8 @@ class LossFunc(nn.Module):
             # "clip_conv_loss": CLIPConvLoss(args),
             'sample_loss' :SinkhornLoss(args),
             'orb_loss':ORBLoss(args),
-            "l2" :L2Loss(args)
+            "l2" :L2Loss(args),
+            "semantic_loss":SemanticLoss(args)
         }
 
     def get_losses_to_apply(self):
@@ -52,6 +54,8 @@ class LossFunc(nn.Module):
             losses_to_apply.append("sample_loss")
         if self.l2_loss:
             losses_to_apply.append("l2")
+        if self.semantic_loss:
+            losses_to_apply.append("semantic_loss")
         return losses_to_apply
     
     def forward(self, sketches, targets,  mode="train"):
@@ -71,7 +75,7 @@ class LossFunc(nn.Module):
             elif loss_name == "l2":
                 losses_dict[loss_name] = self.loss_mapper[loss_name](
                     sketches, targets)
-            elif loss_name == "sample_loss":
+            elif loss_name in ["sample_loss", "semantic_loss"]:
                 losses_dict[loss_name] = self.loss_mapper[loss_name](
                     sketches, targets
                 )
@@ -92,7 +96,19 @@ class L2Loss(nn.Module):
         super(L2Loss, self).__init__()
         self.device = args.device
     def forward(self, img, target):
-        return torch.sum((img - target)** 2)
+        return torch.sum((img - target)** 2) 
+
+class SemanticLoss(nn.Module):
+    def __init__(self, args = None):
+        super(SemanticLoss, self).__init__()
+        self.devive = args.device
+    
+    def forward(self, render_res,gt_res):
+        render_semantic = render_res['semantics']
+        gt_semantic = gt_res['semantics']
+        return torch.sum((render_semantic - gt_semantic) ** 2) * 2
+        
+
 
 # TODO: Yirui to complete
 class ORBLoss(nn.Module):
