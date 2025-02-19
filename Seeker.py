@@ -18,6 +18,7 @@ import tqdm
 from utils import *
 from skimage import img_as_ubyte
 import matplotlib.pyplot as plt
+from  torchviz import make_dot
 
 args = config.parse_arguments()
 class SceneSeeker:
@@ -32,19 +33,31 @@ class SceneSeeker:
             f.close()
         
         # 初始化场景mesh和
-        self.initializer = Initializer(args)
+        self.initializer = Initializer(args,self.settings)
         self.rooms_meshes_list = self.initializer.room_mesh_list
         self.color_list = self.initializer.color_list
-        self.resolution = (args.res, args.res)
+        self.semantic_list = self.initializer.semantic_list
+        self.resolution = (args.width, args.height)
+
+        self.gt_scene_name = self.settings['gt_scene']
+        with open(os.path.join(self.initializer.dataset_dir, self.gt_scene_name+'.json'),'r') as f:
+            self.gt_scene = json.load(f)
+            f.close()
+
 
         # 初始化Renderer
         self.renderer = NVDiffRastFullRenderer(self.device, self.settings,self.resolution,1)
 
         # 根据gt渲染出target_img
         self.gt_view = self.settings['gt_view']
-        mtce = get_camera_matrix(self.gt_view, self.device)
+        self.gt_room = self.gt_scene["rooms"][self.gt_view['room_id']]
+        self.gt_mesh, self.gt_color_list,self.gt_semantics = self.initializer.load_room_as_scene(self.gt_room)
+        
+        mtce = get_camera_matrix(self.gt_view, self.device,aspect=args.width/args.height)
         with torch.no_grad():
-            self.gt_img = self.renderer.render(view=mtce,scene_mesh=self.rooms_meshes_list[self.gt_view['room_id']], color_list=self.color_list[self.gt_view["room_id"]])    
+            self.gt_img = self.renderer.render(view=mtce,scene_mesh=self.gt_mesh, color_list=self.gt_color_list,semantic_list=self.gt_semantics)    
+                
+
         save_gt = self.gt_img["images"].cpu().squeeze(0).numpy()
         save_gt = get_visualized_img(save_gt,use_cv2=True)
         save_semantic = self.gt_img['semantics'].cpu().squeeze(0).numpy()
@@ -96,8 +109,9 @@ class SceneSeeker:
             znear = 0.01
             zfar = 100
             perspective_mtx = torch.tensor(np.array(glm.perspective(
-                glm.radians(fov), 1.0, znear, zfar)), device=self.device)
+                glm.radians(fov), self.args.width/self.args.height, znear, zfar)), device=self.device)
             view_mtx = torch.matmul(perspective_mtx, camera_mtx).to(self.device)
+            view_mtx.retain_grad()
             mtce = {
                 "view_mtx" : view_mtx,
                 "camera_mtx" : camera_mtx,
@@ -107,13 +121,14 @@ class SceneSeeker:
             }
             # print(mtce)
             # Renderer渲染 (img & pos)
-            render_res = self.renderer.render(mtce, scene_mesh=self.rooms_meshes_list[self.room_id], color_list=self.color_list[self.room_id])
+            render_res = self.renderer.render(mtce, scene_mesh=self.rooms_meshes_list[self.room_id], color_list=self.color_list[self.room_id],semantic_list=self.semantic_list[self.room_id])
             # 计算SinkHornLoss
+            # render_res['semantics'].retain_grad()
             losses_dict = loss_func(render_res, self.gt_img)
-            # print(losses_dict)
+
             loss = sum(list(losses_dict.values()))
-            # Backwards
             loss.backward()
+
             self.optimizer.step()
 
             loss_record.append(loss.detach().cpu())
@@ -138,11 +153,15 @@ class SceneSeeker:
                 'position':self.position,
                 'center': self.center
             }
-            mtce = get_camera_matrix(grad_view, self.device)
-            final_res = self.renderer.render(mtce, self.rooms_meshes_list[self.room_id],self.color_list[self.room_id])
+            mtce = get_camera_matrix(grad_view, self.device, aspect=self.args.width/self.args.height)
+            final_res = self.renderer.render(mtce, self.rooms_meshes_list[self.room_id],self.color_list[self.room_id],self.semantic_list[self.room_id])
             final_img = final_res['images'].detach().cpu().squeeze(0).numpy()
             final_img = get_visualized_img(final_img,use_cv2=True)
             cv2.imwrite(f"./runs/exp{args.exp}/final.png", final_img)
+
+            final_semantic = final_res['semantics'].detach().cpu().squeeze(0).numpy()
+            final_semantic = get_visualized_img(final_semantic,use_cv2=True)
+            cv2.imwrite(f"./runs/exp{args.exp}/final_semantic.png",final_semantic)
 
         
         # 计算总体差距 position & direction(norm(p-c))

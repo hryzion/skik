@@ -19,10 +19,11 @@ import matplotlib.pyplot as plt
 
 
 class Initializer:
-    def __init__(self, args):
+    def __init__(self, args, settings):
         self.device = args.device
         self.dataset_dir = args.dataset
-        self.scene_name = args.scene
+        self.scene_name = settings['scene']
+        
         self.model, clip_preprocess = clip.load("ViT-B/32", device=self.device,jit=False)
         self.preprocess =transforms.Compose([
             transforms.Resize((224,224)),
@@ -31,10 +32,12 @@ class Initializer:
         with open(os.path.join(self.dataset_dir,self.scene_name+'.json'),'r') as f:
             self.scene = json.load(f)
             f.close()
+        
         self.args = args
         self.eps = args.eps
         self.room_mesh_list = []
         self.color_list = []
+        self.semantic_list = []
         self.initialize_room()
 
 
@@ -74,7 +77,7 @@ class Initializer:
             scene = self.room_mesh_list[room_id]
             color = self.color_list[room_id]
             with torch.no_grad():
-                render_res = renderer.render(mtce,scene.clone(), color.clone(),False)
+                render_res = renderer.render(mtce,scene.clone(), color.clone(),self.semantic_list[room_id])
                 img = render_res['images']
                 
                 msk = get_uint_mask(render_res["msk"])
@@ -118,6 +121,7 @@ class Initializer:
 
         count = 0
         scene_vert_color = None
+        scene_vert_semantic = None
         for obj in room['objList']:
             if obj['inDatabase']:
                 obj_filename = os.path.join(OBJ_DIR, obj['modelId'],f'{obj['modelId']}.obj')
@@ -141,24 +145,26 @@ class Initializer:
 
                 temp = mesh.transform_verts(transform)
                 all_meshes.append(temp)
-                
+                obj_semantic = torch.zeros((len(mesh.verts_list()[0]), len(category_to_color)))
+                obj_semantic[..., list(category_to_color.keys()).index(obj['coarseSemantic'])] = 1
                 obj_color = torch.tensor([category_to_color[obj['coarseSemantic']].copy()] * len(mesh.verts_list()[0]))
                 if count == 0:
                     scene_vert_color = obj_color
+                    scene_vert_semantic = obj_semantic
                 else:
-                    scene_vert_color = torch.cat([scene_vert_color, obj_color], dim= 0)
+                    scene_vert_color = torch.cat([scene_vert_color, obj_color], dim=0)
+                    scene_vert_semantic = torch.cat([scene_vert_semantic, obj_semantic],dim=0)
                 count +=1 
         
-        
         scene = join_meshes_as_scene(all_meshes)
-        return scene, scene_vert_color
+        return scene, scene_vert_color, scene_vert_semantic
 
     def initialize_room(self):
         for room_id,room in enumerate(self.scene['rooms']):
-            mesh, vert_color = self.load_room_as_scene(room)
+            mesh, vert_color, vert_semantic = self.load_room_as_scene(room)
             self.room_mesh_list.append(mesh)
             self.color_list.append(vert_color)
-        print((self.color_list[6].shape))
+            self.semantic_list.append(vert_semantic)
 
     def initialize_view(self, renderer ,mode = "top"):
         if mode == "manual":

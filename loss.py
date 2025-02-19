@@ -8,6 +8,7 @@ from geomloss import SamplesLoss
 import numpy as np
 
 
+
 class LossFunc(nn.Module):
     def __init__(self, args = None):
         super(LossFunc, self).__init__()
@@ -106,7 +107,10 @@ class SemanticLoss(nn.Module):
     def forward(self, render_res,gt_res):
         render_semantic = render_res['semantics']
         gt_semantic = gt_res['semantics']
-        return torch.sum((render_semantic - gt_semantic) ** 2) * 2
+        loss = torch.sum((render_semantic - gt_semantic) ** 2)
+        loss.retain_grad()
+        
+        return loss
         
 
 
@@ -181,9 +185,10 @@ class SinkhornLoss(nn.Module):
         super(SinkhornLoss, self).__init__()
         self.device = args.device
         self.loss = SamplesLoss("sinkhorn", blur=0.05)
-        self.res = args.res
-        x =torch.linspace(0,1,self.res)
-        y = torch.linspace(0,1,self.res)
+        self.width = args.width
+        self.height = args.height
+        x =torch.linspace(0,1,self.height)
+        y = torch.linspace(0,1,self.width)
         pts = torch.meshgrid(x, y)
         self.pos = torch.cat([pts[1][...,None],pts[0][...,None]],dim=2)[None, ...].to(self.device) # 1, H, W, 2
         
@@ -198,7 +203,7 @@ class SinkhornLoss(nn.Module):
         # render_point_5d_match[...,:3] *= self.rgb_match_weight(view)
         # target_point_5d[...,:3] = target_point_5d[...,:3]*self.rgb_match_weight(view)
         # print(target_point_5d.shape)
-        pointloss = self.loss(render_point_5d_match, target_point_5d)*self.res*self.res
+        pointloss = self.loss(render_point_5d_match, target_point_5d)*self.width*self.height
         # print(pointloss)
         [g] = torch.autograd.grad(torch.sum(pointloss), [render_point_5d_match])
         # print(g)
@@ -213,10 +218,10 @@ class SinkhornLoss(nn.Module):
 
         haspos = render_res["msk"]
         render_pos = (render_res["pos"]+1.0)/2.0
-        render_rgb = render_res["images"]
+        render_rgb = render_res["semantics"]
         render_pos[haspos==False]=self.pos[view:view+1][haspos==False].clone()
         render_point_5d = torch.cat([render_rgb, render_pos], dim=-1)
-        gt_rgb=gt_res["images"][view:view+1]
+        gt_rgb=gt_res["semantics"][view:view+1]
         
         match_point_5d = self.match_point(haspos,render_point_5d,gt_rgb,view)
         dist = match_point_5d - render_point_5d

@@ -28,14 +28,15 @@ def parse_arguments():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--scene', type=str, default='000ecb5b-b877-4f9a-ab6f-90f385931658')
-    parser.add_argument('--dataset', type=str, default='./data/scenes')
+    parser.add_argument('--dataset', type=str, default='/mnt/e/dataset/scenes')
     parser.add_argument('--debug',action= "store_true",default=False)
     parser.add_argument('--sketch',type=str,default='./data/sketch/sketch3.jpg')
     parser.add_argument('--epoch',type=int, default=50)
     parser.add_argument('--eps',type=float,default=1e-1)
 
     parser.add_argument('--sample',type=bool, default=0)
-    parser.add_argument('--res', type=int,default=256)
+    parser.add_argument('--width', type=int,default=256)
+    parser.add_argument('--height',type=int, default= 256)
 
     parser.add_argument('--exp',type=int,default=1)
 
@@ -107,7 +108,7 @@ category_to_color = {
     'Lounge Chair / Cafe Chair / Office Chair': [0.2, 0.8, 0.2],  # 深绿色
     'Loveseat Sofa': [0.8, 0.2, 0.2],  # 深红色
     'Nightstand': [0.2, 0.6, 0.6],  # 蓝绿色
-    'Pendant Lamp': [0.6, 0.2, 0.6],  # 紫红色
+    'Pendant Lamp': [1.0, 1.0, 0.0],  # 紫红色
     'Round End Table': [0.6, 0.6, 0.2],  # 土黄色
     'Shelf': [0.2, 0.4, 0.6],  # 海军蓝
     'Sideboard / Side Cabinet / Console table': [0.4, 0.2, 0.6],  # 靛蓝色

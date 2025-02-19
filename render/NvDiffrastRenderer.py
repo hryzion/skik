@@ -6,6 +6,7 @@ from pytorch3d.renderer.mesh.textures import TexturesUV, TexturesVertex
 import numpy as np
 import cv2,os
 import torchvision.transforms as transforms
+from torchviz import make_dot
 def transform_pos(mtx, pos): 
     t_mtx = torch.from_numpy(mtx).cuda() if isinstance(mtx, np.ndarray) else mtx #4x4
     if len(t_mtx.shape)==2:
@@ -80,10 +81,12 @@ class NVDiffRastFullRenderer(nn.Module):
         return semantic_color
 
 
-    def render_mesh(self, mesh, mtx, view_pos, light_pos, light_power, resolution, material=None, rast_out=None, envmap=None, color_list = None):
+    def render_mesh(self, mesh, mtx, view_pos, light_pos, light_power, resolution, material=None, rast_out=None, envmap=None, color_list = None, semantic_list=None):
         pos = mesh.verts_list()[0].to(self.device).contiguous()
         pos_idx = mesh.faces_list()[0].to(self.device).to(torch.int32).contiguous()
+
         color_list = color_list.to(self.device)
+        semantic_list = semantic_list.to(self.device)
         if type(mesh.textures)==TexturesUV:
             uv_idx = mesh.textures.faces_uvs_list()[0].to(self.device).to(torch.int32)
             uv = mesh.textures.verts_uvs_list()[0].to(self.device)
@@ -101,59 +104,63 @@ class NVDiffRastFullRenderer(nn.Module):
         # pos = pos.detach()
 
         pos_clip = transform_pos(mtx, pos)
+        # if pos_clip.requires_grad:
+        #     pos_clip.retain_grad()
+        # self.pos_clip = pos_clip
+        # if mtx.requires_grad:
+        #     mtx.retain_grad()
+        # self.mtx = mtx
+        
         if rast_out==None:
-            rast_out, rast_out_db = dr.rasterize(self.glctx, pos_clip, pos_idx, resolution=[resolution, resolution]) 
+            rast_out, rast_out_db = dr.rasterize(self.glctx, pos_clip, pos_idx, resolution=[resolution[1], resolution[0]]) 
         else:
             rast_out_db=None
         
+        # if rast_out.requires_grad:
+        #     rast_out.retain_grad()
+        # self.rast_out = rast_out
+
+
         # if DcDt==False:
-        # rast_out = rast_out.detach()
+        rast_out = rast_out.detach()
         
         if tex != None and uv!=None:
             texc, _ = dr.interpolate(uv[None, ...], rast_out, uv_idx)
             color = dr.texture(tex[None, ...], texc, filter_mode='linear')
+            # if color.requires_grad:
+            #     g = make_dot(color)
+            #     g.render("./color")
+            # if texc.requires_grad:
+            #     texc.retain_grad()
+            #     self.texc = texc
+            
+                
         elif tex!=None:
             color,_ = dr.interpolate(tex[None, ...], rast_out, pos_idx)
         else:
             color = torch.zeros_like(rast_out)[...,:3]
         
-        color, _= dr.interpolate(color_list[None, ...],rast_out, pos_idx)
-        # if self.shading==True:
-        #     normal = mesh.verts_normals_list()[0].to(self.device)
-        #     normals, _ = dr.interpolate(normal[None, ...], rast_out, pos_idx)
-        #     points, _ = dr.interpolate(pos[None,...], rast_out, pos_idx)
-        #     normals = F.normalize(normals, p=2, dim=-1, eps=1e-6)
-        #     direction = F.normalize(light_pos[:,None,None,:]-points, p=2, dim=-1, eps=1e-6)
-        #     cos_angle = torch.sum(normals * direction, dim=-1)[..., None]
-        #     mask = (cos_angle > 0).to(torch.float32)
-        #     light_diffuse = light_power*cos_angle*mask
-        #     view_direction = view_pos[:,None,None,:] - points
-        #     view_direction = F.normalize(view_direction, p=2, dim=-1, eps=1e-6)
-        #     reflect_direction = -direction + 2 * (cos_angle * normals)
-        #     if envmap!=None:
-        #         reflect_direction = F.normalize(reflect_direction, p=2, dim=-1, eps=1e-6)
-        #         speculer_color = dr.texture(envmap[None, ...], reflect_direction, filter_mode='linear', boundary_mode='cube')
-        #         light_specular = speculer_color*mask
-        #     else:
-        #         alpha = F.relu(torch.sum(view_direction * reflect_direction, dim=-1))[..., None]*mask
-        #         light_specular=light_power * torch.pow(alpha, material.shininess)
-        #     ambient_color = material.ambient_color
-        #     diffuse_color = light_diffuse*material.diffuse_color
-        #     specular_color = light_specular*material.specular_color
-        #     color = (ambient_color+diffuse_color)*color+specular_color
-        
+        semantics, _ = dr.interpolate(color_list[None, ...],rast_out, pos_idx)
+        s_channels, _ = dr.interpolate(semantic_list[None,...],rast_out,pos_idx)
+        # if semantics.requires_grad:
+        #     semantics.retain_grad()
+        # self.semantics = semantics
+        # if color.requires_grad:
+        #     g = make_dot(semantics)
+        #     g.render("./semantics")
+        #     exit()
         for i in range(rast_out.shape[0]):
             color[i][rast_out[i,..., -1]==0]=self.render_result[i][rast_out[i,..., -1]==0]
         
         # if DcDt:
         #     color = dr.antialias(color.contiguous(), rast_out, pos_clip, pos_idx)
         
-        return color, [rast_out], [rast_out_db], color
+        return color, [rast_out], [rast_out_db], semantics, s_channels
     
-    def render(self, view, scene_mesh, color_list, rasts_list=None):
+    def render(self, view, scene_mesh, color_list, semantic_list, rasts_list=None):
         meshes = scene_mesh
         perspective_matrix = view["perspective_mtx"]
-        resolution = self.resolution[0]
+        resolution = self.resolution
         vp = view['view_mtx']
         camera_matrix = view["camera_mtx"]
         lookFrom = view['position']
@@ -164,14 +171,19 @@ class NVDiffRastFullRenderer(nn.Module):
         msk_buffer = torch.zeros((num_view,self.resolution[1],self.resolution[0]),dtype=torch.bool).to(self.device)
         new_rasts_list = []
 
-        render_image, rasts, dbs, semantic_img= self.render_mesh(mesh = meshes, mtx=vp, view_pos=lookFrom, light_pos=lookFrom, light_power=self.light_power, resolution=resolution, color_list=color_list)
+        render_image, rasts, dbs, semantic_img, semantics_channels= self.render_mesh(mesh = meshes, mtx=vp, view_pos=lookFrom, light_pos=lookFrom, light_power=self.light_power, resolution=resolution, color_list=color_list, semantic_list=semantic_list)
+        new_rasts_list.append([rasts,dbs])
+        # if render_image.requires_grad:
+        #     render_image.retain_grad()
         # print(render_image.requires_grad)
         pos = meshes.verts_list()[0].to(self.device)
         pos_idx = meshes.faces_list()[0].to(self.device).to(torch.int32).contiguous()
+        
         # semantic_img = self.render_semantic_image(color_list, pos_idx, rasts[-1])
         depth_map, pos_map, msk = self.render_point_image(camera_matrix, perspective_matrix, rasts[-1].detach(), pos, pos_idx, resolution)      
         # print(pos_map.requires_grad)
-        print(semantic_img.requires_grad)
+        # print(semantic_img.requires_grad)
+        
         msk_buffer = msk_buffer | msk
         pos_buffer = pos_map
         self.render_result = render_image
@@ -182,7 +194,8 @@ class NVDiffRastFullRenderer(nn.Module):
                 "msk":msk_buffer,
                 "pos": pos_buffer,
                 "rasts": new_rasts_list,
-                "semantics":semantic_img
+                "semantics":semantic_img,
+                "semantics_c":semantics_channels
             }
         
         return res
