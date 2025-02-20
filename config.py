@@ -74,6 +74,7 @@ def parse_arguments():
     parser.add_argument("--orb_loss", action= "store_true", default= False)
     parser.add_argument('--l2_loss', action= "store_true", default=False)
     parser.add_argument('--sample_loss',action= "store_true", default=False)
+    parser.add_argument('--mode', type=str, default='semantics')
     parser.add_argument('--semantic_loss',action= "store_true", default=False)
     args = parser.parse_args()
 

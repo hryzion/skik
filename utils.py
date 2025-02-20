@@ -38,7 +38,7 @@ def cosine_distance(hist1, hist2):
     # 余弦距离 = 1 - 余弦相似度
     return 1 - cosine_sim.item()
 
-def get_camera_matrix(view, device):
+def get_camera_matrix(view, device, aspect = 1):
     position = torch.tensor(view["position"], device=device, requires_grad=True)
     center = torch.tensor(view['center'], device=device, requires_grad=True)
     
@@ -50,7 +50,7 @@ def get_camera_matrix(view, device):
     znear = view.get("znear", 0.01)
     zfar = view.get("zfar", 100)
     perspective_mtx = torch.tensor(np.array(glm.perspective(
-            glm.radians(fov), 1.0, znear, zfar)), device=device)
+            glm.radians(fov), aspect, znear, zfar)), device=device)
     view_mtx = torch.matmul(perspective_mtx, camera_mtx).to(device)
     return {
         "view_mtx" : view_mtx,
