@@ -187,6 +187,11 @@ class SinkhornLoss(nn.Module):
         self.loss = SamplesLoss("sinkhorn", blur=0.05)
         self.width = args.width
         self.height = args.height
+        self.search_mode = args.mode
+        if self.search_mode == 'semantics' or self.search_mode == "rgb":
+            self.dim = 5
+        elif self.search_mode == 'channels':
+            self.dim = 35
         x =torch.linspace(0,1,self.height)
         y = torch.linspace(0,1,self.width)
         pts = torch.meshgrid(x, y)
@@ -194,11 +199,11 @@ class SinkhornLoss(nn.Module):
         
     def match_point(self, haspos, render_point_5d, gt_rgb, view):
         _ , h, w, c = render_point_5d.shape
-        target_point_5d = torch.zeros((haspos.shape[0], h, w, 5), device=self.device)
-        target_point_5d[..., :3] = torch.clamp(gt_rgb,0,1)
-        target_point_5d[..., 3:] = render_point_5d[...,3:].clone().detach()
-        target_point_5d = target_point_5d.reshape(-1, h*w, 5)
-        render_point_5d_match = render_point_5d.clone().reshape(-1,h*w,5)
+        target_point_5d = torch.zeros((haspos.shape[0], h, w, self.dim), device=self.device)
+        target_point_5d[..., :self.dim - 2] = torch.clamp(gt_rgb,0,1)
+        target_point_5d[..., self.dim - 2:] = render_point_5d[...,self.dim - 2:].clone().detach()
+        target_point_5d = target_point_5d.reshape(-1, h*w, self.dim)
+        render_point_5d_match = render_point_5d.clone().reshape(-1,h*w,self.dim)
         render_point_5d_match.clamp_(0.0,1.0)
         # render_point_5d_match[...,:3] *= self.rgb_match_weight(view)
         # target_point_5d[...,:3] = target_point_5d[...,:3]*self.rgb_match_weight(view)
@@ -209,7 +214,7 @@ class SinkhornLoss(nn.Module):
         # print(g)
         # g[...,:3]/=self.rgb_match_weight(view)
         
-        return (render_point_5d-g.reshape(-1,h,w,5)).detach()
+        return (render_point_5d-g.reshape(-1,h,w,self.dim)).detach()
 
         
 
@@ -218,10 +223,21 @@ class SinkhornLoss(nn.Module):
 
         haspos = render_res["msk"]
         render_pos = (render_res["pos"]+1.0)/2.0
-        render_rgb = render_res["semantics"]
+        if self.search_mode == 'semantics':
+            render_rgb = render_res["semantics"]
+        elif self.search_mode == 'channels':
+            render_rgb = render_res['semantics_c']
+        elif self.search_mode =='rgb':
+            render_rgb = render_res['images']
         render_pos[haspos==False]=self.pos[view:view+1][haspos==False].clone()
         render_point_5d = torch.cat([render_rgb, render_pos], dim=-1)
-        gt_rgb=gt_res["semantics"][view:view+1]
+        if self.search_mode == 'semantics':
+            gt_rgb=gt_res["semantics"][view:view+1]
+        elif self.search_mode == 'channels':
+            gt_rgb=gt_res["semantics_c"][view:view+1]
+        elif self.search_mode =='rgb':
+            gt_rgb=gt_res["images"][view:view+1]
+        
         
         match_point_5d = self.match_point(haspos,render_point_5d,gt_rgb,view)
         dist = match_point_5d - render_point_5d

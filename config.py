@@ -17,7 +17,7 @@ beta_pos = 10
 theta_scale = 40
 pos_scale = 2
 DATA_DIR = "/mnt/e/dataset/scenes"
-OBJ_DIR = '/mnt/e/dataset/3DFront_p/object/'
+OBJ_DIR = '/mnt/e/dataset//tmp/objects'
 
 
 import argparse
@@ -28,7 +28,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--scene', type=str, default='000ecb5b-b877-4f9a-ab6f-90f385931658')
-    parser.add_argument('--dataset', type=str, default='/mnt/e/dataset/scenes')
+    parser.add_argument('--dataset', type=str, default='/mnt/e/dataset/tmp/scene')
     parser.add_argument('--debug',action= "store_true",default=False)
     parser.add_argument('--sketch',type=str,default='./data/sketch/sketch3.jpg')
     parser.add_argument('--epoch',type=int, default=50)
