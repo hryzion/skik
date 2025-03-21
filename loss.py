@@ -191,7 +191,7 @@ class SinkhornLoss(nn.Module):
         if self.search_mode == 'semantics' or self.search_mode == "rgb":
             self.dim = 5
         elif self.search_mode == 'channels':
-            self.dim = 35
+            self.dim = 12
         x =torch.linspace(0,1,self.height)
         y = torch.linspace(0,1,self.width)
         pts = torch.meshgrid(x, y)

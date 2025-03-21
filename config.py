@@ -17,7 +17,7 @@ beta_pos = 10
 theta_scale = 40
 pos_scale = 2
 DATA_DIR = "/mnt/e/dataset/scenes"
-OBJ_DIR = '/mnt/e/dataset//tmp/objects'
+OBJ_DIR = '/mnt/e/dataset/3DFront_p/object'
 
 
 import argparse
@@ -28,7 +28,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--scene', type=str, default='000ecb5b-b877-4f9a-ab6f-90f385931658')
-    parser.add_argument('--dataset', type=str, default='/mnt/e/dataset/tmp/scene')
+    parser.add_argument('--dataset', type=str, default='/mnt/e/dataset/scenes')
     parser.add_argument('--debug',action= "store_true",default=False)
     parser.add_argument('--sketch',type=str,default='./data/sketch/sketch3.jpg')
     parser.add_argument('--epoch',type=int, default=50)
@@ -122,6 +122,59 @@ category_to_color = {
 }
 
 
+# 粗略类别到细致类别的映射表
+fine_to_coarse = {
+    'Barstool': 'Chairs',
+    'Bookcase / jewelry Armoire': 'Storage',
+    'Bunk Bed': 'Beds',
+    'Ceiling Lamp': 'Lighting',
+    'Chaise Longue Sofa': 'Lounge & Office Chairs',
+    'Children Cabinet': 'Storage',
+    'Classic Chinese Chair': 'Chairs',
+    'Coffee Table': 'Tables',
+    'Corner/Side Table': 'Tables',
+    'Desk': 'Tables',
+    'Dining Chair': 'Chairs',
+    'Dining Table': 'Tables',
+    'Drawer Chest / Corner cabinet': 'Storage',
+    'Dressing Chair': 'Chairs',
+    'Dressing Table': 'Tables',
+    'Footstool / Sofastool / Bed End Stool / Stool': 'Stools & Small Seats',
+    'Kids Bed': 'Beds',
+    'King-size Bed': 'Beds',
+    'L-shaped Sofa': 'Sofas',
+    'Lazy Sofa': 'Lounge & Office Chairs',
+    'Lounge Chair / Cafe Chair / Office Chair': 'Lounge & Office Chairs',
+    'Loveseat Sofa': 'Sofas',
+    'Nightstand': 'Stand',
+    'Pendant Lamp': 'Lighting',
+    'Round End Table': 'Tables',
+    'Shelf': 'Storage',
+    'Sideboard / Side Cabinet / Console table': 'Storage',
+    'Single bed': 'Beds',
+    'TV Stand': 'Stand',
+    'Three-seat / Multi-seat Sofa': 'Sofas',
+    'Wardrobe': 'Storage',
+    'Wine Cabinet': 'Storage',
+    'armchair': 'Lounge & Office Chairs',
+}
+
+
+coarse_categories = ['Beds', 'Chairs', 'Tables', 'Storage', 'Lighting', 'Sofas', "Stools & Small Seats" , "Stand" ,"Lounge & Office Chairs", "unlabelled"]
+
+
+coarse_to_color = {
+    'Beds': [1.0, 0.0, 0.0],  # 红色
+    'Chairs': [0.0, 1.0, 0.0],  # 绿色
+    'Tables': [0.0, 0.0, 1.0],  # 蓝色
+    'Storage': [0.5, 0.25, 0.0],  # 棕色
+    'Lighting': [1.0, 0.0, 1.0],  # 紫色
+    'Sofas': [0.0, 1.0, 1.0],  # 青色
+    "Stools & Small Seats": [1.0, 0.5, 0.0],  # 橙色
+    "Stand": [0.2, 0.4, 0.6],  # 海军蓝
+    "Lounge & Office Chairs": [0.5, 0.5, 0.5],  # 灰色
+    "unlabelled": [1, 1, 1],  # 白色
+}
 
 def semantic_color(obj):
     return category_to_color[obj['coarseSemantic']]

@@ -28,12 +28,20 @@ class NVDiffRastFullRenderer(nn.Module):
         self.glctx = dr.RasterizeCudaContext()
         bg = settings.get("background","white")
         self.multi_bg=False
+        self.c_bg = torch.zeros((1,resolution[1],resolution[0],10)).cuda()
+        self.c_bg[...,-1]=1
         if bg=="white":
             self.background=torch.ones((1,resolution[1],resolution[0],3)).cuda()
+            
+            self.s_bg = torch.ones((1,resolution[1],resolution[0],3)).cuda()
         elif bg=="black":
             self.background=torch.zeros((1,resolution[1],resolution[0],3)).cuda()
+            
+            self.s_bg = torch.zeros((1,resolution[1],resolution[0],3)).cuda()
         elif bg=="random":
             self.background=torch.rand((1,resolution[1],resolution[0],3)).cuda()
+            
+            self.s_bg = torch.rand((1,resolution[1],resolution[0],3)).cuda()
         else:
             if num_views==None:
                 bg = cv2.imread(bg)
@@ -151,6 +159,9 @@ class NVDiffRastFullRenderer(nn.Module):
         #     exit()
         for i in range(rast_out.shape[0]):
             color[i][rast_out[i,..., -1]==0]=self.render_result[i][rast_out[i,..., -1]==0]
+            
+            s_channels[i][rast_out[i,..., -1]==0]=self.channel_result[i][rast_out[i,..., -1]==0]
+            semantics[i][rast_out[i,..., -1]==0]=self.semantic_result[i][rast_out[i,..., -1]==0]
         
         # if DcDt:
         #     color = dr.antialias(color.contiguous(), rast_out, pos_clip, pos_idx)
@@ -166,6 +177,8 @@ class NVDiffRastFullRenderer(nn.Module):
         lookFrom = view['position']
         num_view = 1
         self.render_result = self.background[...,:3].clone()
+        self.channel_result = self.c_bg[...,:10].clone()
+        self.semantic_result = self.s_bg[...,:3].clone()
         depth_buffer = torch.ones((num_view,self.resolution[1],self.resolution[0])).to(self.device)*1000000000.0
         pos_buffer = torch.ones((num_view,self.resolution[1],self.resolution[0],2)).to(self.device)*-1
         msk_buffer = torch.zeros((num_view,self.resolution[1],self.resolution[0]),dtype=torch.bool).to(self.device)

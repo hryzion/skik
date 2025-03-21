@@ -4,7 +4,7 @@ import os
 import numpy as np
 from PIL import Image
 import config
-from config import DATA_DIR, OBJ_DIR, category_to_color
+from config import DATA_DIR, OBJ_DIR, category_to_color, fine_to_coarse, coarse_categories, coarse_to_color
 
 import CLIP_.clip as clip
 import torch
@@ -145,9 +145,9 @@ class Initializer:
 
                 temp = mesh.transform_verts(transform)
                 all_meshes.append(temp)
-                obj_semantic = torch.zeros((len(mesh.verts_list()[0]), len(category_to_color)))
-                obj_semantic[..., list(category_to_color.keys()).index(obj['coarseSemantic'])] = 1
-                obj_color = torch.tensor([category_to_color[obj['coarseSemantic']].copy()] * len(mesh.verts_list()[0]))
+                obj_semantic = torch.zeros((len(mesh.verts_list()[0]), len(coarse_categories)))
+                obj_semantic[..., coarse_categories.index(fine_to_coarse[obj['coarseSemantic']])] = 1
+                obj_color = torch.tensor([coarse_to_color[fine_to_coarse[obj['coarseSemantic']]].copy()] * len(mesh.verts_list()[0]))
                 if count == 0:
                     scene_vert_color = obj_color
                     scene_vert_semantic = obj_semantic

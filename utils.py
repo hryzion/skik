@@ -5,7 +5,8 @@ import torch
 import numpy as np
 from pytorch3d.renderer import (
     look_at_rotation_nvdiff,
-    get_world_to_view_transform
+    get_world_to_view_transform,
+    look_at_rotation
 )
 
 def get_uint_mask(msk):
@@ -44,6 +45,7 @@ def get_camera_matrix(view, device, aspect = 1):
     
     R = look_at_rotation_nvdiff(position, center, device=device)
     T = -torch.bmm(R.transpose(1, 2), position[:, :, None])[:, :, 0]
+
     camera_mtx = get_world_to_view_transform(R=R, T=T).get_matrix().transpose(1,2).to(device)
 
     fov = view.get("fov", 60.0)
@@ -65,13 +67,21 @@ def to_direction(view):
     position = torch.tensor(view['position'])
     center = torch.tensor(view["center"])
     direction = (center - position) / torch.norm(position - center)
-    return torch.cat([position, direction], dim=0)
+    print(position,direction)
+    return {
+        "position":position.squeeze(0).cpu(),
+        "direction":direction.squeeze(0).cpu()
+    }
 
 
 def calculate_view_mae(view, gt):
-    view = to_direction(view).cpu()
-    gt = to_direction(gt).cpu()
-    return torch.sum((view-gt)**2)
+    view = to_direction(view)
+    gt = to_direction(gt)
+    d_p = torch.sqrt(torch.sum((view['position'] - gt['position'])**2))
+    # calculate the angle between two directions
+    
+    d_d = torch.acos(torch.dot(view["direction"], gt["direction"]) / (torch.norm(view["direction"]) * torch.norm(gt["direction"]))) * 180 / np.pi
+    return d_p , d_d
 
 def find_room_obb(room):
     for obj in room['objList']:

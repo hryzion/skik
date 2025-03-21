@@ -65,6 +65,7 @@ class SceneSeeker:
 
         cv2.imwrite(f"./runs/exp{args.exp}/gt_img.png",save_gt)
         cv2.imwrite(f'./runs/exp{args.exp}/gt_semantic.png', save_semantic)
+    
         
         self.initializer.set_gt_img(self.gt_img)
 
@@ -135,8 +136,10 @@ class SceneSeeker:
             
 
             if i % self.args.save_interval == 0 or i == epoch -1:
-                save_img = render_res['images'].clone().detach().cpu().squeeze(0).numpy()
-                save_img = get_visualized_img(save_img)
+                img = render_res['images'].clone().detach().cpu().squeeze(0).numpy()
+                save_img = get_visualized_img(img)
+                interval_img = get_visualized_img(img,use_cv2=True)
+                cv2.imwrite(f"./runs/exp{args.exp}/interval_{i}.png",interval_img)
                 writer.append_data(save_img)
         writer.close()
 
@@ -166,7 +169,7 @@ class SceneSeeker:
         
         # 计算总体差距 position & direction(norm(p-c))
             view_mae = calculate_view_mae(grad_view, self.gt_view)
-            print(f"The final view mae: {view_mae}")
+            print(f"The final view mae: {view_mae[0]}m, {view_mae[1]}d")
         
 
 
