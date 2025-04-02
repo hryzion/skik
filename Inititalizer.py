@@ -124,7 +124,7 @@ class Initializer:
         scene_vert_semantic = None
         for obj in room['objList']:
             if obj['inDatabase']:
-                obj_filename = os.path.join(OBJ_DIR, obj['modelId'],f'{obj['modelId']}.obj')
+                obj_filename = os.path.join(OBJ_DIR, obj['modelId'],f'{obj["modelId"]}.obj')
                 mesh = load_objs_as_meshes([obj_filename],device=self.device)
                 translate = torch.Tensor(obj['translate'])
                 scale = torch.Tensor(obj['scale'])

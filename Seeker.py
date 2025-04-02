@@ -28,6 +28,7 @@ class SceneSeeker:
         self.device = args.device
         if not os.path.exists(f'./runs/exp{args.exp}'):
             os.mkdir(f'./runs/exp{args.exp}')
+        os.makedirs(f'./runs/exp{args.exp}/interval_image',exist_ok=True)
         with open(os.path.join("./experiments",args.settings+".json"), 'r') as f:
             self.settings = json.load(f)
             f.close()
@@ -94,6 +95,7 @@ class SceneSeeker:
         loss_record = []
         # 进入主循环
         loss_func = LossFunc(args)
+        pose_record = []
         for i in tqdm.tqdm(range(epoch)):
             # 梯度清零
             self.optimizer.zero_grad()
@@ -106,7 +108,7 @@ class SceneSeeker:
             R = look_at_rotation_nvdiff(self.position, self.center, device=self.device)
             T = -torch.bmm(R.transpose(1, 2), self.position[:, :, None])[:, :, 0]
             camera_mtx = get_world_to_view_transform(R=R, T=T).get_matrix().transpose(1,2).to(self.device)
-            fov = 60.0
+            fov = 60
             znear = 0.01
             zfar = 100
             perspective_mtx = torch.tensor(np.array(glm.perspective(
@@ -139,8 +141,16 @@ class SceneSeeker:
                 img = render_res['images'].clone().detach().cpu().squeeze(0).numpy()
                 save_img = get_visualized_img(img)
                 interval_img = get_visualized_img(img,use_cv2=True)
-                cv2.imwrite(f"./runs/exp{args.exp}/interval_{i}.png",interval_img)
+                cv2.imwrite(f"./runs/exp{args.exp}/interval_image/interval_{i}.png",interval_img)
                 writer.append_data(save_img)
+                grad_view = {
+                    'position':self.position,
+                    'center': self.center
+                }
+                pose_record.append(to_direction(grad_view, save = True))
+
+
+
         writer.close()
 
         ep = [i for i in range(len(loss_record))]
@@ -154,7 +164,8 @@ class SceneSeeker:
         with torch.no_grad():
             grad_view = {
                 'position':self.position,
-                'center': self.center
+                'center': self.center,
+                'room_id' : self.room_id
             }
             mtce = get_camera_matrix(grad_view, self.device, aspect=self.args.width/self.args.height)
             final_res = self.renderer.render(mtce, self.rooms_meshes_list[self.room_id],self.color_list[self.room_id],self.semantic_list[self.room_id])
@@ -171,6 +182,21 @@ class SceneSeeker:
             view_mae = calculate_view_mae(grad_view, self.gt_view)
             print(f"The final view mae: {view_mae[0]}m, {view_mae[1]}d")
         
+        with open(f"./runs/exp{args.exp}/pose_record.json",'w') as f:
+            json.dump(
+                {
+                    "pose":pose_record,
+                    "scene": self.settings['scene'],
+                    'view': {
+                        'position':self.position.cpu().detach().squeeze(0).numpy().tolist(),
+                        'center': self.center.cpu().detach().squeeze(0).numpy().tolist(),
+                        'room_id' : self.room_id
+                    }
+                },f
+            )
+        f.close()
+        
+        print(grad_view)
 
 
 

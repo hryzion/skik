@@ -45,11 +45,13 @@ def get_camera_matrix(view, device, aspect = 1):
     
     R = look_at_rotation_nvdiff(position, center, device=device)
     T = -torch.bmm(R.transpose(1, 2), position[:, :, None])[:, :, 0]
+    
+    
 
     camera_mtx = get_world_to_view_transform(R=R, T=T).get_matrix().transpose(1,2).to(device)
-
-    fov = view.get("fov", 60.0)
-    znear = view.get("znear", 0.01)
+    
+    fov = view.get("fov", 60)
+    znear = view.get("znear", 0.1)
     zfar = view.get("zfar", 100)
     perspective_mtx = torch.tensor(np.array(glm.perspective(
             glm.radians(fov), aspect, znear, zfar)), device=device)
@@ -63,11 +65,16 @@ def get_camera_matrix(view, device, aspect = 1):
     }
 
 
-def to_direction(view):
+def to_direction(view, save = False):
     position = torch.tensor(view['position'])
     center = torch.tensor(view["center"])
     direction = (center - position) / torch.norm(position - center)
-    print(position,direction)
+    # print(position,direction)
+    if save:
+        return {
+            "position":position.squeeze(0).cpu().numpy().tolist(),
+            "direction":direction.squeeze(0).cpu().numpy().tolist()
+        }
     return {
         "position":position.squeeze(0).cpu(),
         "direction":direction.squeeze(0).cpu()

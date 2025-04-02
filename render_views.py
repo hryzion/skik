@@ -34,7 +34,7 @@ def load_room_as_scene(room):
     scene_vert_semantic = None
     for obj in room['objList']:
         if obj['inDatabase']:
-            obj_filename = os.path.join(OBJ_DIR, obj['modelId'],f'{obj['modelId']}.obj')
+            obj_filename = os.path.join(OBJ_DIR, obj['modelId'],f'{obj["modelId"]}.obj')
             mesh = load_objs_as_meshes([obj_filename],device=args.device)
             translate = torch.Tensor(obj['translate'])
             scale = torch.Tensor(obj['scale'])
@@ -71,7 +71,7 @@ def load_room_as_scene(room):
 
 dataset  = args.dataset
 cnt = 0
-for scene_name in os.listdir("/mnt/e/dataset/tmp/views/data"):
+for scene_name in tqdm.tqdm(os.listdir("/mnt/disk-1/zhx24/dataset/views/")[215:]):
     room_mesh_list = []
     color_list = []
     semantic_list = []
@@ -88,10 +88,12 @@ for scene_name in os.listdir("/mnt/e/dataset/tmp/views/data"):
     
 
     print(f"Processing {scene_name}...")
-    for settings in tqdm.tqdm(os.listdir(f"/mnt/e/dataset/tmp/views/data/{scene_name}")):
+    os.makedirs(f"/mnt/disk-1/zhx24/dataset/views/{scene_name}/img",exist_ok=True)
+    os.makedirs(f"/mnt/disk-1/zhx24/dataset/views/{scene_name}/semantics",exist_ok=True)
+    for settings in tqdm.tqdm(os.listdir(f"/mnt/disk-1/zhx24/dataset/views/{scene_name}/views/")):
         if settings.split('.')[-1] != 'json':
             continue
-        with open(f"/mnt/e/dataset/tmp/views/data/{scene_name}/{settings}", 'r') as f:
+        with open(f"/mnt/disk-1/zhx24/dataset/views/{scene_name}/views/{settings}", 'r') as f:
             setting = json.load(f)
             f.close()
         
@@ -105,15 +107,16 @@ for scene_name in os.listdir("/mnt/e/dataset/tmp/views/data"):
             img = renderer.render(view=mtce, scene_mesh=mesh, color_list=color, semantic_list=semantics)
         save_img = img["images"].cpu().squeeze(0).numpy()
         save_img = get_visualized_img(save_img, use_cv2=True)
-        cv2.imwrite(f"/mnt/e/dataset/tmp/views/train/img/{cnt}.png", save_img)
+        name = settings.split(".")[0]
+        cv2.imwrite(f"/mnt/disk-1/zhx24/dataset/views/{scene_name}/img/{name}.png", save_img)
         save_semantic = img['semantics'].cpu().squeeze(0).numpy()
         save_semantic = get_visualized_img(save_semantic, use_cv2=True)
 
         save_semantic_channels = img['semantics_c'].cpu().squeeze(0).numpy()
+        save_semantic_channels = save_semantic_channels > 0.5
         # flip semantic channels 
         save_semantic_channels = np.flip(save_semantic_channels, axis=0)
-        np.save(f'/mnt/e/dataset/tmp/views/train/gt/{cnt}_semantic.npy', save_semantic_channels)
-        cv2.imwrite(f'/mnt/e/dataset/tmp/views/train/img/{cnt}_semantic.png', save_semantic)
+        np.save(f'/mnt/disk-1/zhx24/dataset/views/{scene_name}/semantics/{name}.npy', save_semantic_channels)
         cnt+=1
 
     

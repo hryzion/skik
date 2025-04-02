@@ -192,29 +192,32 @@ class SinkhornLoss(nn.Module):
             self.dim = 5
         elif self.search_mode == 'channels':
             self.dim = 12
+        elif self.search_mode == "combine":
+            self.dim = 15
         x =torch.linspace(0,1,self.height)
         y = torch.linspace(0,1,self.width)
         pts = torch.meshgrid(x, y)
         self.pos = torch.cat([pts[1][...,None],pts[0][...,None]],dim=2)[None, ...].to(self.device) # 1, H, W, 2
+        self.match_weight = [1,3,1]
         
-    def match_point(self, haspos, render_point_5d, gt_rgb, view):
-        _ , h, w, c = render_point_5d.shape
-        target_point_5d = torch.zeros((haspos.shape[0], h, w, self.dim), device=self.device)
-        target_point_5d[..., :self.dim - 2] = torch.clamp(gt_rgb,0,1)
-        target_point_5d[..., self.dim - 2:] = render_point_5d[...,self.dim - 2:].clone().detach()
-        target_point_5d = target_point_5d.reshape(-1, h*w, self.dim)
-        render_point_5d_match = render_point_5d.clone().reshape(-1,h*w,self.dim)
-        render_point_5d_match.clamp_(0.0,1.0)
-        # render_point_5d_match[...,:3] *= self.rgb_match_weight(view)
-        # target_point_5d[...,:3] = target_point_5d[...,:3]*self.rgb_match_weight(view)
+    def match_point(self, haspos, render_point_kd, gt_rgb, view):
+        _ , h, w, c = render_point_kd.shape
+        target_point_kd = torch.zeros((haspos.shape[0], h, w, self.dim), device=self.device)
+        target_point_kd[..., :self.dim - 2] = torch.clamp(gt_rgb,0,1)
+        target_point_kd[..., self.dim - 2:] = render_point_kd[...,self.dim - 2:].clone().detach()
+        target_point_kd = target_point_kd.reshape(-1, h*w, self.dim)
+        render_point_kd_match = render_point_kd.clone().reshape(-1,h*w,self.dim)
+        render_point_kd_match.clamp_(0.0,1.0)
+        # render_point_kd_match[...,:3] *= self.match_weight[0]
+        # target_point_kd[...,:3] = target_point_kd[...,:3]*self.match_weight[0]
         # print(target_point_5d.shape)
-        pointloss = self.loss(render_point_5d_match, target_point_5d)*self.width*self.height
+        pointloss = self.loss(render_point_kd_match, target_point_kd)*self.width*self.height
         # print(pointloss)
-        [g] = torch.autograd.grad(torch.sum(pointloss), [render_point_5d_match])
+        [g] = torch.autograd.grad(torch.sum(pointloss), [render_point_kd_match])
         # print(g)
-        # g[...,:3]/=self.rgb_match_weight(view)
+        # g[...,:3]/=self.match_weight[0]
         
-        return (render_point_5d-g.reshape(-1,h,w,self.dim)).detach()
+        return (render_point_kd-g.reshape(-1,h,w,self.dim)).detach()
 
         
 
@@ -229,6 +232,8 @@ class SinkhornLoss(nn.Module):
             render_rgb = render_res['semantics_c']
         elif self.search_mode =='rgb':
             render_rgb = render_res['images']
+        elif self.search_mode == "combine":
+            render_rgb = torch.cat([render_res['semantics_c'],render_res['images']],dim=-1)
         render_pos[haspos==False]=self.pos[view:view+1][haspos==False].clone()
         render_point_5d = torch.cat([render_rgb, render_pos], dim=-1)
         if self.search_mode == 'semantics':
@@ -237,6 +242,8 @@ class SinkhornLoss(nn.Module):
             gt_rgb=gt_res["semantics_c"][view:view+1]
         elif self.search_mode =='rgb':
             gt_rgb=gt_res["images"][view:view+1]
+        elif self.search_mode == 'combine':
+            gt_rgb = torch.cat([gt_res["semantics_c"][view:view+1], gt_res["images"][view:view+1]],dim=-1)
         
         
         match_point_5d = self.match_point(haspos,render_point_5d,gt_rgb,view)
