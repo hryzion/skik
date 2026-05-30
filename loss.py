@@ -97,7 +97,7 @@ class L2Loss(nn.Module):
         super(L2Loss, self).__init__()
         self.device = args.device
     def forward(self, img, target):
-        return torch.sum((img - target)** 2) 
+        return torch.sum((img['images'] - target['images'])** 2) 
 
 class SemanticLoss(nn.Module):
     def __init__(self, args = None):

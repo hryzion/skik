@@ -22,33 +22,33 @@ def transform_pos(mtx, pos):
         return torch.matmul(posw, t_mtx.permute(0,2,1))
 
 class NVDiffRastFullRenderer(nn.Module):
-    def __init__(self, device, settings, resolution, num_views=None):
+    def __init__(self, device, resolution, num_views=None):
         super().__init__()
         self.device = device
-        self.glctx = dr.RasterizeCudaContext()
-        bg = settings.get("background","white")
+        self.glctx = dr.RasterizeCudaContext(self.device)
+        bg = "white"
         self.multi_bg=False
-        self.c_bg = torch.zeros((1,resolution[1],resolution[0],10)).cuda()
+        self.c_bg = torch.zeros((1,resolution[1],resolution[0],10)).to(self.device)
         self.c_bg[...,-1]=1
         if bg=="white":
-            self.background=torch.ones((1,resolution[1],resolution[0],3)).cuda()
+            self.background=torch.ones((1,resolution[1],resolution[0],3)).to(self.device)
             
-            self.s_bg = torch.ones((1,resolution[1],resolution[0],3)).cuda()
+            self.s_bg = torch.ones((1,resolution[1],resolution[0],3)).to(self.device)
         elif bg=="black":
-            self.background=torch.zeros((1,resolution[1],resolution[0],3)).cuda()
+            self.background=torch.zeros((1,resolution[1],resolution[0],3)).to(self.device)
             
-            self.s_bg = torch.zeros((1,resolution[1],resolution[0],3)).cuda()
+            self.s_bg = torch.zeros((1,resolution[1],resolution[0],3)).to(self.device)
         elif bg=="random":
-            self.background=torch.rand((1,resolution[1],resolution[0],3)).cuda()
+            self.background=torch.rand((1,resolution[1],resolution[0],3)).to(self.device)
             
-            self.s_bg = torch.rand((1,resolution[1],resolution[0],3)).cuda()
+            self.s_bg = torch.rand((1,resolution[1],resolution[0],3)).to(self.device)
         else:
             if num_views==None:
                 bg = cv2.imread(bg)
                 bg = cv2.cvtColor(bg, cv2.COLOR_BGR2RGB)
                 bg = cv2.flip(bg,0)
                 bg = cv2.resize(bg,(resolution[0],resolution[1]))*1.0/255.0
-                self.background = torch.tensor(bg).cuda().reshape((1,resolution[1],resolution[0],3)).float()
+                self.background = torch.tensor(bg).to(self.device).reshape((1,resolution[1],resolution[0],3)).float()
             else:
                 self.backgrounds=[]
                 bg_folder=bg
@@ -58,16 +58,16 @@ class NVDiffRastFullRenderer(nn.Module):
                     bg = cv2.flip(bg,0)
                     bg = cv2.resize(bg,(resolution[0],resolution[1]))*1.0/255.0
                     self.backgrounds.append(torch.tensor(bg)[None].float())
-                self.background = torch.cat(self.backgrounds).cuda()
+                self.background = torch.cat(self.backgrounds).to(self.device)
                 self.multi_bg=True
         
-        self.light_power = settings.get("light_power",1.0)
-        self.shading = settings.get("shading",True)
+        self.light_power =1.0
+        self.shading = True
         self.resolution = resolution
-        envlight_path = settings.get("envlight_path",None)
+        envlight_path = None
         if envlight_path!=None:
             envlight = np.load(envlight_path)
-            self.envmap = torch.from_numpy(envlight).cuda().float()
+            self.envmap = torch.from_numpy(envlight).to(self.device).float()
         else:
             self.envmap=None
     
@@ -89,7 +89,8 @@ class NVDiffRastFullRenderer(nn.Module):
         return semantic_color
 
 
-    def render_mesh(self, mesh, mtx, view_pos, light_pos, light_power, resolution, material=None, rast_out=None, envmap=None, color_list = None, semantic_list=None):
+    def render_mesh(self, mesh, mtx, view_pos, light_pos, light_power, resolution, material=None, rast_out=None, envmap=None, color_list = None, semantic_list=None,l2=False):
+        
         pos = mesh.verts_list()[0].to(self.device).contiguous()
         pos_idx = mesh.faces_list()[0].to(self.device).to(torch.int32).contiguous()
 
@@ -129,8 +130,9 @@ class NVDiffRastFullRenderer(nn.Module):
         # self.rast_out = rast_out
 
 
-        # if DcDt==False:
-        rast_out = rast_out.detach()
+        if l2==False:
+            rast_out = rast_out.detach()
+        
         
         if tex != None and uv!=None:
             texc, _ = dr.interpolate(uv[None, ...], rast_out, uv_idx)
@@ -160,7 +162,7 @@ class NVDiffRastFullRenderer(nn.Module):
         for i in range(rast_out.shape[0]):
             color[i][rast_out[i,..., -1]==0]=self.render_result[i][rast_out[i,..., -1]==0]
             
-            s_channels[i][rast_out[i,..., -1]==0]=self.channel_result[i][rast_out[i,..., -1]==0]
+            # s_channels[i][rast_out[i,..., -1]==0]=self.channel_result[i][rast_out[i,..., -1]==0]
             semantics[i][rast_out[i,..., -1]==0]=self.semantic_result[i][rast_out[i,..., -1]==0]
         
         # if DcDt:
@@ -168,7 +170,7 @@ class NVDiffRastFullRenderer(nn.Module):
         
         return color, [rast_out], [rast_out_db], semantics, s_channels
     
-    def render(self, view, scene_mesh, color_list, semantic_list, rasts_list=None):
+    def render(self, view, scene_mesh, color_list, semantic_list, rasts_list=None, l2=False):
         meshes = scene_mesh
         perspective_matrix = view["perspective_mtx"]
         resolution = self.resolution
@@ -184,7 +186,7 @@ class NVDiffRastFullRenderer(nn.Module):
         msk_buffer = torch.zeros((num_view,self.resolution[1],self.resolution[0]),dtype=torch.bool).to(self.device)
         new_rasts_list = []
 
-        render_image, rasts, dbs, semantic_img, semantics_channels= self.render_mesh(mesh = meshes, mtx=vp, view_pos=lookFrom, light_pos=lookFrom, light_power=self.light_power, resolution=resolution, color_list=color_list, semantic_list=semantic_list)
+        render_image, rasts, dbs, semantic_img, semantics_channels= self.render_mesh(mesh = meshes, mtx=vp, view_pos=lookFrom, light_pos=lookFrom, light_power=self.light_power, resolution=resolution, color_list=color_list, semantic_list=semantic_list,l2=l2)
         new_rasts_list.append([rasts,dbs])
         # if render_image.requires_grad:
         #     render_image.retain_grad()

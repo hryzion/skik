@@ -32,6 +32,7 @@ def bhattacharyya_distance(H1, H2):
 def compute_histogram(image ,msk = None):
     hist = cv2.calcHist([image], [0, 1, 2],msk, [8, 8, 8], [0, 256, 0, 256, 0, 256])
     hist = cv2.normalize(hist, hist).flatten()  # 归一化并展平
+    hist[-1] = 0
     return hist
 
 def cosine_distance(hist1, hist2):
@@ -39,9 +40,9 @@ def cosine_distance(hist1, hist2):
     # 余弦距离 = 1 - 余弦相似度
     return 1 - cosine_sim.item()
 
-def get_camera_matrix(view, device, aspect = 1):
-    position = torch.tensor(view["position"], device=device, requires_grad=True)
-    center = torch.tensor(view['center'], device=device, requires_grad=True)
+def get_camera_matrix(view, device, aspect = 1, ortho = False):
+    position = torch.tensor(view["position"], device=device, requires_grad=True,dtype=torch.float32)
+    center = torch.tensor(view['center'], device=device, requires_grad=True,dtype =  torch.float32)
     
     R = look_at_rotation_nvdiff(position, center, device=device)
     T = -torch.bmm(R.transpose(1, 2), position[:, :, None])[:, :, 0]
@@ -53,8 +54,24 @@ def get_camera_matrix(view, device, aspect = 1):
     fov = view.get("fov", 60)
     znear = view.get("znear", 0.1)
     zfar = view.get("zfar", 100)
-    perspective_mtx = torch.tensor(np.array(glm.perspective(
-            glm.radians(fov), aspect, znear, zfar)), device=device)
+
+    if ortho:
+        scale = view.get("ortho_scale", position[0][1])
+
+        left   = -scale * aspect
+        right  =  scale * aspect
+        bottom = -scale
+        top    =  scale
+
+        perspective_mtx = torch.tensor(
+            np.array(glm.ortho(left, right, bottom, top, znear, zfar)),
+            device=device,
+            dtype=torch.float32
+        )
+
+    else:
+        perspective_mtx = torch.tensor(np.array(glm.perspective(
+                glm.radians(fov), aspect, znear, zfar)), device=device)
     view_mtx = torch.matmul(perspective_mtx, camera_mtx).to(device)
     return {
         "view_mtx" : view_mtx,

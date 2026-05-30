@@ -71,7 +71,7 @@ def load_room_as_scene(room):
 
 dataset  = args.dataset
 cnt = 0
-for scene_name in tqdm.tqdm(os.listdir("/mnt/disk-1/zhx24/dataset/views/")[215:]):
+for scene_name in tqdm.tqdm(os.listdir("/mnt/disk-1/zhx24/dataset/views/")[:214]):
     room_mesh_list = []
     color_list = []
     semantic_list = []
@@ -90,6 +90,7 @@ for scene_name in tqdm.tqdm(os.listdir("/mnt/disk-1/zhx24/dataset/views/")[215:]
     print(f"Processing {scene_name}...")
     os.makedirs(f"/mnt/disk-1/zhx24/dataset/views/{scene_name}/img",exist_ok=True)
     os.makedirs(f"/mnt/disk-1/zhx24/dataset/views/{scene_name}/semantics",exist_ok=True)
+    os.makedirs(f"/mnt/disk-1/zhx24/dataset/views/{scene_name}/depth",exist_ok=True)
     for settings in tqdm.tqdm(os.listdir(f"/mnt/disk-1/zhx24/dataset/views/{scene_name}/views/")):
         if settings.split('.')[-1] != 'json':
             continue
@@ -97,7 +98,7 @@ for scene_name in tqdm.tqdm(os.listdir("/mnt/disk-1/zhx24/dataset/views/")[215:]
             setting = json.load(f)
             f.close()
         
-        renderer = NVDiffRastFullRenderer(args.device, setting, (args.width, args.height), 1)
+        renderer = NVDiffRastFullRenderer(args.device, (args.width, args.height), 1)
         view = setting['gt_view']
         room = scene["rooms"][view['room_id']]
         
@@ -108,12 +109,18 @@ for scene_name in tqdm.tqdm(os.listdir("/mnt/disk-1/zhx24/dataset/views/")[215:]
         save_img = img["images"].cpu().squeeze(0).numpy()
         save_img = get_visualized_img(save_img, use_cv2=True)
         name = settings.split(".")[0]
-        cv2.imwrite(f"/mnt/disk-1/zhx24/dataset/views/{scene_name}/img/{name}.png", save_img)
+        cv2.imwrite(f"/mnt/disk-1/zhx24/dataset/views/{scene_name}/img/{name}_480px.png", save_img)
         save_semantic = img['semantics'].cpu().squeeze(0).numpy()
         save_semantic = get_visualized_img(save_semantic, use_cv2=True)
 
         save_semantic_channels = img['semantics_c'].cpu().squeeze(0).numpy()
         save_semantic_channels = save_semantic_channels > 0.5
+
+        save_depth = img['depth'].cpu().squeeze(0).numpy()
+        save_depth = np.flip(save_depth, axis=0)
+        np.save(f'/mnt/disk-1/zhx24/dataset/views/{scene_name}/depth/{name}.npy', save_depth)
+        # save_depth = get_visualized_img(save_depth, use_cv2=True)
+        # cv2.imwrite(f"/mnt/disk-1/zhx24/dataset/views/{scene_name}/depth/{name}.png", save_depth)
         # flip semantic channels 
         save_semantic_channels = np.flip(save_semantic_channels, axis=0)
         np.save(f'/mnt/disk-1/zhx24/dataset/views/{scene_name}/semantics/{name}.npy', save_semantic_channels)

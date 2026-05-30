@@ -19,6 +19,8 @@ pos_scale = 2
 DATA_DIR = "../../dataset/3dfront/scenes"
 OBJ_DIR = '../../dataset/3dfront/object'
 
+VIEWS_BASE_DIR = '../../dataset/views/'
+
 
 import argparse
 import torch
@@ -39,6 +41,8 @@ def parse_arguments():
     parser.add_argument('--height',type=int, default= 256)
 
     parser.add_argument('--exp',type=int,default=1)
+    parser.add_argument('--val', action='store_true', default=False)
+    parser.add_argument('--val_manual', action='store_true', default=False)
 
     parser.add_argument("--settings", type=str, default="scene_1")
     parser.add_argument('--save_interval', type=int, default= 10)
@@ -76,11 +80,13 @@ def parse_arguments():
     parser.add_argument('--sample_loss',action= "store_true", default=False)
     parser.add_argument('--mode', type=str, default='semantics')
     parser.add_argument('--semantic_loss',action= "store_true", default=False)
+
+    parser.add_argument('--cuda',type=int, default=0)
     args = parser.parse_args()
 
     args.clip_conv_layer_weights = [
         float(item) for item in args.clip_conv_layer_weights.split(',')]
-    args.device = torch.device("cuda" if (
+    args.device = torch.device(f"cuda:{args.cuda}" if (
             torch.cuda.is_available() and torch.cuda.device_count() > 0) else "cpu")
     return args
 

@@ -5,7 +5,7 @@ import numpy as np
 from PIL import Image
 import config
 from config import DATA_DIR, OBJ_DIR, category_to_color, fine_to_coarse, coarse_categories, coarse_to_color
-
+from cluster.cluster import *
 import CLIP_.clip as clip
 import torch
 import tqdm
@@ -19,10 +19,10 @@ import matplotlib.pyplot as plt
 
 
 class Initializer:
-    def __init__(self, args, settings):
+    def __init__(self, args, scene_name):
         self.device = args.device
         self.dataset_dir = args.dataset
-        self.scene_name = settings['scene']
+        self.scene_name = scene_name
         
         self.model, clip_preprocess = clip.load("ViT-B/32", device=self.device,jit=False)
         self.preprocess =transforms.Compose([
@@ -42,6 +42,7 @@ class Initializer:
 
 
     def set_gt_img(self,img):
+        self.gt = img
         self.gt_img = img['images'].to(self.device)
         img_uint = self.gt_img.clone().cpu().squeeze(0).numpy()
         img_uint = get_visualized_img(img_uint,use_cv2=True)
@@ -52,6 +53,9 @@ class Initializer:
         if self.args.debug:
             plt.plot(self.hist)
             plt.show()
+        
+        self.get_gt_categorys()
+        # print(self.gt_set)
     
 
     
@@ -90,27 +94,87 @@ class Initializer:
             # get histo
             hist = compute_histogram(img,msk)
             if self.args.debug:
-                pass
-                # plt.plot(hist)
-                # plt.show()
+                plt.plot(hist)
+                plt.show()
 
             # get texts
-            roomType = room['roomTypes'][0]
+           
             objCount = 0
-            obj_dict = {}
+            obj_set = set()
             for obj in room['objList']:
                 if obj['coarseSemantic'] in ['Window','Door']:
                     continue
                 objCount+=1
-                if obj['coarseSemantic'] in obj_dict.keys():
-                    obj_dict[obj['coarseSemantic']] += 1
-                else:
-                    obj_dict[obj['coarseSemantic']] = 1
-            text = f'a photo of {roomType}'
-            for key,value in obj_dict.items(): 
-                text += f',{value} {key}'
-            return [hist], [text], [view]
+                if obj['coarseSemantic'] not in obj_set:
+                    obj_set.add(fine_to_coarse[obj['coarseSemantic']])
+            
+            return [hist], [obj_set], [view]
         
+
+        elif mode == '4d':
+            bbox = find_room_obb(room)
+            center = ((torch.tensor(bbox[0]) + torch.tensor(bbox[1]))/2).unsqueeze(0)
+            center[...,1] = 0
+            tmp = torch.abs(torch.tensor(bbox[0]-bbox[1]))
+            scale = torch.max(tmp[0],tmp[2]) / 2
+
+            directs = [
+                [[0,0,1]],
+                [[0,0,-1]],
+                [[1,0,0]],
+                [[-1,0,0]]
+            ]
+            hs, os, vs = [],[],[]
+
+            for i,direct in enumerate(directs):
+                position = center + scale * torch.tensor(direct) * 1.5
+                position[...,1] = 3
+                view ={
+                    'position': position,
+                    'center': center,
+                    "room_id" : room_id
+                }
+                mtce = get_camera_matrix(view=view, device=self.device)
+                scene = self.room_mesh_list[room_id]
+                color = self.color_list[room_id]
+                with torch.no_grad():
+                    render_res = renderer.render(mtce,scene.clone(), color.clone(),self.semantic_list[room_id])
+                    img = render_res['images']
+                    
+                    msk = get_uint_mask(render_res["msk"])
+                
+                if img.shape[-1] == 4:
+                    img = img[..., 0:3]
+                img = img.cpu().squeeze(0).numpy()
+                img = get_visualized_img(img,use_cv2=True)
+
+                # get histo
+                hist = compute_histogram(img,msk)
+                if self.args.debug:
+                    plt.plot(hist)
+                    plt.savefig(f"./tmp/output_{room_id}_{i}.png")
+                    plt.cla()
+
+                    cv2.imwrite(f'./tmp/candidate_{room_id}_{i}.png', img)
+
+
+                # get texts
+            
+                objCount = 0
+                obj_set = self.get_categoris(render_res['semantics_c'])
+                # for obj in room['objList']:
+                #     if obj['coarseSemantic'] in ['Window','Door']:
+                #         continue
+                #     objCount+=1
+                #     if obj['coarseSemantic'] not in obj_set:
+                #         obj_set.add(fine_to_coarse[obj['coarseSemantic']])
+                
+                hs.append(hist)
+                vs.append(view)
+                os.append(obj_set)
+            return hs, os, vs
+                
+
         else:
             pass
 
@@ -123,7 +187,10 @@ class Initializer:
         scene_vert_color = None
         scene_vert_semantic = None
         for obj in room['objList']:
+            if obj['coarseSemantic'] == 'Bed Frame':
+                continue
             if obj['inDatabase']:
+
                 obj_filename = os.path.join(OBJ_DIR, obj['modelId'],f'{obj["modelId"]}.obj')
                 mesh = load_objs_as_meshes([obj_filename],device=self.device)
                 translate = torch.Tensor(obj['translate'])
@@ -167,10 +234,10 @@ class Initializer:
             self.semantic_list.append(vert_semantic)
 
     def initialize_view(self, renderer ,mode = "top"):
-        if mode == "manual":
-            return 
+        # if mode == "manual":
+        #     return 
         histos = []
-        texts = []
+        obj_sets = []
         candidate_views= []
         for room_id, room in enumerate(self.scene['rooms']):
             objCount = 0
@@ -185,32 +252,62 @@ class Initializer:
                     obj_dict[obj['coarseSemantic']] = 1
             if objCount == 0:
                 continue
+            # print(room_id)
             h, t, v= self.get_texts_and_colorhisto(renderer,room, room_id, mode)
             # print(f"The shape of histograms is {h.shape}")
             histos += h
-            texts += t
+            obj_sets += t
             candidate_views +=v
-        tokens = clip.tokenize(texts).to(self.device)
-        if self.args.debug:
-            print(texts)
-            print(tokens.shape)
-        self.model.eval()
-        img = self.gt_img.permute((0,3,1,2))
-        logits_per_image, logits_per_text = self.model(self.preprocess(img), tokens)
         
+        IoUs = []
+        for obj_set in obj_sets:
+            # print(obj_set)
+            U = obj_set.union(self.gt_set)
+            I = obj_set.intersection(self.gt_set)
+            IoUs.append(len(I)/len(U))
+        
+        IoUs = torch.Tensor(IoUs).cuda()
         histos = torch.Tensor(histos)
         gt_histos = torch.Tensor(self.hist)
-        d_histo = torch.sum((histos - gt_histos) ** 2, dim=1).cuda()
+        
+        d_histo = torch.nn.functional.cosine_similarity(histos, gt_histos,dim=1).cuda()
+        # torch.sum((histos - gt_histos) ** 2, dim=1).cuda()
+        
+        # print(IoUs)
+        # print(d_histo)
 
         # torch.nn.functional.cosine_similarity(histos, gt_histos,dim=1).cuda()
-        dist = logits_per_image - d_histo
+        dist =  d_histo
 
-        probs= dist.softmax(dim = -1).detach().cpu()[0]
+        probs= dist.softmax(dim = -1).detach().cpu()
+        
         view_id = torch.argmax(probs)
 
         # return a start view
+        # print(candidate_views)
+        for i, v in enumerate(candidate_views):
+            # print(i, v)
+            pass
         return candidate_views[view_id]
 
+
+    def get_gt_categorys(self):
+        self.gt_set = set()
+        gt_semantics = self.gt['semantics_c']
+        gt_semantics = torch.permute(gt_semantics, (0,3,1,2))
+        # print(gt_semantics.shape)
+        for i, c in enumerate(gt_semantics[0]):
+            # print(c.shape)
+            if c.any():
+                self.gt_set.add(coarse_categories[i])
+
+    def get_categoris(self,semantics):
+        ret_set = set()
+        semantics = torch.permute(semantics, (0,3,1,2))
+        for i, c in enumerate(semantics[0]):
+            if c.any():
+                ret_set.add(coarse_categories[i])
+        return ret_set
 
     def initialize(self):
         semantic_tokens = []

@@ -10,3 +10,12 @@ runs
 sketch_results
 sample_results
 clip_ckpt
+experiments
+*.png
+result_atiss/
+result_diffuscene/
+generated/
+real_scene/
+tmp
+*.json
+nvdiffrast/
